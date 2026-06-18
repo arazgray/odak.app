@@ -1,40 +1,45 @@
 // Service Worker for Odak App
 
-const CACHE_NAME = 'odak-app-cache-v3.0';
+const ASSET_VERSION = '3.0-20260626-IV';
+const CACHE_NAME = `odak-app-cache-v${ASSET_VERSION}`;
+const versioned = url => `${url}?v=${ASSET_VERSION}`;
 const urlsToCache = [
   '/',
-  '/index.html',
-  '/example.md',
-  '/assets/styles/style.css',
-  '/assets/styles/responsive.css',
-  '/assets/styles/theme-light.css',
-  '/assets/styles/theme-dark.css',
-  '/assets/styles/theme-odak.css',
-  '/assets/scripts/script.js',
-  '/assets/images/odak.svg',
-  '/assets/images/odak-paper.png',
-  '/assets/images/dark-paper.png',
-  '/assets/images/white-paper.png',
-  '/manifest.json',
-  '/assets/fonts/Vazirmatn-Regular.woff2',
-  '/assets/fonts/Vazirmatn-Bold.woff2',
-  '/assets/webfonts/fa-solid-900.ttf',
-  '/assets/webfonts/fa-solid-900.woff2',
-  '/assets/sounds/type-machine/key-new-01.mp3',
-  '/assets/sounds/type-machine/key-new-02.mp3',
-  '/assets/sounds/type-machine/key-new-03.mp3',
-  '/assets/sounds/type-machine/key-new-04.mp3',
-  '/assets/sounds/type-machine/key-new-05.mp3',
-  '/assets/sounds/type-machine/space-new.mp3',
-  '/assets/sounds/type-machine/backspace.mp3',
-  '/assets/sounds/type-machine/return-new.mp3',
-  '/assets/sounds/type-machine/scrollUp.mp3',
-  '/assets/sounds/type-machine/scrollDown.mp3',
-  '/assets/scripts/draggable-image.js',
-  '/assets/scripts/wysiwyg-markdown-editor.js',
-  '/assets/vendor/bootstrap.min.css',
-  '/assets/vendor/font-awesome.min.css',
-  '/assets/vendor/bootstrap.bundle.min.js'
+  versioned('/index.html'),
+  versioned('/example.md'),
+  versioned('/assets/styles/style.css'),
+  versioned('/assets/styles/responsive.css'),
+  versioned('/assets/styles/theme-light.css'),
+  versioned('/assets/styles/theme-dark.css'),
+  versioned('/assets/styles/theme-odak.css'),
+  versioned('/assets/scripts/script.js'),
+  versioned('/assets/images/odak-icon.png'),
+  versioned('/assets/images/odak-icon-192.png'),
+  versioned('/assets/images/odak-icon-512.png'),
+  versioned('/assets/images/odak.svg'),
+  versioned('/assets/images/odak-paper.png'),
+  versioned('/assets/images/dark-paper.png'),
+  versioned('/assets/images/white-paper.png'),
+  versioned('/manifest.json'),
+  versioned('/assets/fonts/Vazirmatn-Regular.woff2'),
+  versioned('/assets/fonts/Vazirmatn-Bold.woff2'),
+  versioned('/assets/webfonts/fa-solid-900.ttf'),
+  versioned('/assets/webfonts/fa-solid-900.woff2'),
+  versioned('/assets/sounds/type-machine/key-new-01.mp3'),
+  versioned('/assets/sounds/type-machine/key-new-02.mp3'),
+  versioned('/assets/sounds/type-machine/key-new-03.mp3'),
+  versioned('/assets/sounds/type-machine/key-new-04.mp3'),
+  versioned('/assets/sounds/type-machine/key-new-05.mp3'),
+  versioned('/assets/sounds/type-machine/space-new.mp3'),
+  versioned('/assets/sounds/type-machine/backspace.mp3'),
+  versioned('/assets/sounds/type-machine/return-new.mp3'),
+  versioned('/assets/sounds/type-machine/scrollUp.mp3'),
+  versioned('/assets/sounds/type-machine/scrollDown.mp3'),
+  versioned('/assets/scripts/draggable-image.js'),
+  versioned('/assets/scripts/wysiwyg-markdown-editor.js'),
+  versioned('/assets/vendor/bootstrap.min.css'),
+  versioned('/assets/vendor/font-awesome.min.css'),
+  versioned('/assets/vendor/bootstrap.bundle.min.js')
 ];
 
 // Install event - cache all static assets
@@ -103,7 +108,7 @@ self.addEventListener('fetch', event => {
           .catch(() => {
             // Return a fallback page if offline and page not in cache
             if (event.request.mode === 'navigate') {
-              return caches.match('/index.html');
+              return caches.match(versioned('/index.html'));
             }
             
             // For other requests, try to return a cached version
@@ -116,7 +121,7 @@ self.addEventListener('fetch', event => {
                 // If no cached version exists, return a basic offline page
                 const acceptHeader = event.request.headers.get('accept') || '';
                 if (acceptHeader.includes('text/html')) {
-                  return caches.match('/index.html');
+                  return caches.match(versioned('/index.html'));
                 }
                 
                 // For other types of requests, return a basic offline response

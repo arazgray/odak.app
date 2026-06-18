@@ -1,6 +1,6 @@
 /*
  * Odak.app is a clean, minimalist, and privacy-respecting writing app with live Markdown rendering—built to keep you in the flow. No accounts, no ads, no cloud, and no distractions. Everything is stored locally on your device.
- * v=3.0
+ * v=3.0-20260626-IV
  * Author: Araz Gholami @arazgholami
  * Email: contact@arazgholami.com
  */
@@ -17,6 +17,7 @@ let documents = {};
 let customBackground = null; 
 let documentSearchQuery = '';
 let documentSortMode = 'updated-desc';
+const ASSET_VERSION = '3.0-20260626-IV';
 
 let fontFamily = 'Vazir'; 
 let fontSize = 120; 
@@ -39,7 +40,7 @@ Visit [Odak.app](https://odak.app) or [email the author](mailto:contact@odak.app
 
 ### Image
 
-![Odak logo](https://odak.app/assets/images/odak.svg)
+![Odak logo](https://odak.app/assets/images/odak.svg?v=3.0-20260626-IV)
 <!-- odak:image {"x":707,"y":279,"width":86,"height":86} -->
 ## Lists
 
@@ -81,6 +82,11 @@ Visit [Odak.app](https://odak.app) or [email the author](mailto:contact@odak.app
 English text works naturally.
 
 متن فارسی هم با جهت راست به چپ پشتیبانی می‌شود.`;
+
+function versionedAsset(path) {
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}v=${ASSET_VERSION}`;
+}
 
 // Add function to handle typing state
 function handleTypingState() {
@@ -138,25 +144,31 @@ document.addEventListener('mousemove', () => {
 
 editor.addEventListener('keydown', handleKeyDown);
 
-const sounds = {
+const soundFiles = {
   key: [
-    new Audio('./assets/sounds/type-machine/key-new-01.mp3'),
-    new Audio('./assets/sounds/type-machine/key-new-02.mp3'),
-    new Audio('./assets/sounds/type-machine/key-new-03.mp3'),
-    new Audio('./assets/sounds/type-machine/key-new-04.mp3'),
-    new Audio('./assets/sounds/type-machine/key-new-05.mp3')
+    './assets/sounds/type-machine/key-new-01.mp3',
+    './assets/sounds/type-machine/key-new-02.mp3',
+    './assets/sounds/type-machine/key-new-03.mp3',
+    './assets/sounds/type-machine/key-new-04.mp3',
+    './assets/sounds/type-machine/key-new-05.mp3'
   ],
-  space: new Audio('./assets/sounds/type-machine/space-new.mp3'),
-  backspace: new Audio('./assets/sounds/type-machine/backspace.mp3'),
-  return: new Audio('./assets/sounds/type-machine/return-new.mp3'),
-  scrollUp: new Audio('./assets/sounds/type-machine/scrollUp.mp3'),
-  scrollDown: new Audio('./assets/sounds/type-machine/scrollDown.mp3')
+  space: './assets/sounds/type-machine/space-new.mp3',
+  backspace: './assets/sounds/type-machine/backspace.mp3',
+  return: './assets/sounds/type-machine/return-new.mp3',
+  scrollUp: './assets/sounds/type-machine/scrollUp.mp3',
+  scrollDown: './assets/sounds/type-machine/scrollDown.mp3'
 };
+let audioContext = null;
+let soundBuffers = {};
+let soundsLoading = null;
+let soundsUnavailable = false;
+let mediaSounds = {};
+let mediaSoundsReady = false;
 
 function init() {
   // Register service worker for offline functionality
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js')
+    navigator.serviceWorker.register(versionedAsset('./sw.js'))
       .then(registration => {
         console.log('ServiceWorker registration successful with scope: ', registration.scope);
       })
@@ -178,6 +190,8 @@ function init() {
   applyBackground();
   updateBackgroundSelection();  
   initBootstrapTooltips();
+  updateFullscreenButtonVisibility();
+  toggleToolbarAndStatusbar('show');
   
   // Check if this is the first visit
   const hasSeenInfo = localStorage.getItem('odak_has_seen_info');
@@ -316,18 +330,143 @@ function handleKeyDown(e) {
 
 function playSound(type) {
   if (!soundEnabled) return;
-  
-  if (type === 'key') {
-    
-    const randomIndex = Math.floor(Math.random() * sounds.key.length);
-    const sound = sounds.key[randomIndex].cloneNode();
-    sound.volume = soundVolume / 3;
-    sound.play();
-  } else if (sounds[type]) {
-    const sound = sounds[type].cloneNode();
-    sound.volume = soundVolume / 3;
-    sound.play();
+
+  if (shouldUseMediaSounds()) {
+    playMediaSound(type);
+    return;
   }
+
+  playBufferedSound(type);
+}
+
+async function playBufferedSound(type) {
+  await ensureSoundsReady();
+  if (audioContext && audioContext.state === 'suspended') {
+    await audioContext.resume().catch(() => {});
+  }
+  if (!audioContext || audioContext.state !== 'running') return;
+
+  const buffers = soundBuffers[type];
+  const soundBuffer = Array.isArray(buffers)
+    ? buffers[Math.floor(Math.random() * buffers.length)]
+    : buffers;
+  if (!soundBuffer) return;
+
+  const source = audioContext.createBufferSource();
+  const gain = audioContext.createGain();
+  gain.gain.value = soundVolume / 3;
+  source.buffer = soundBuffer;
+  source.connect(gain);
+  gain.connect(audioContext.destination);
+  source.start(0);
+}
+
+function shouldUseMediaSounds() {
+  return !isIOSDevice();
+}
+
+function isIOSDevice() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function ensureMediaSoundsReady() {
+  if (mediaSoundsReady) return;
+
+  Object.entries(soundFiles).forEach(([type, files]) => {
+    const sources = Array.isArray(files) ? files : [files];
+    mediaSounds[type] = sources.map(path => {
+      const audio = document.createElement('audio');
+      audio.src = versionedAsset(path);
+      audio.preload = 'auto';
+      audio.volume = soundVolume / 3;
+      audio.load();
+      return audio;
+    });
+  });
+
+  mediaSoundsReady = true;
+}
+
+function playMediaSound(type) {
+  ensureMediaSoundsReady();
+
+  const sounds = mediaSounds[type];
+  if (!sounds || sounds.length === 0) return;
+
+  const sound = sounds[Math.floor(Math.random() * sounds.length)];
+  sound.volume = soundVolume / 3;
+  sound.currentTime = 0;
+  sound.play().catch(() => {});
+}
+
+function ensureSoundsReady() {
+  if (soundsUnavailable) return Promise.resolve();
+
+  if (!audioContext) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+      soundsUnavailable = true;
+      return Promise.resolve();
+    }
+    audioContext = new AudioContextClass();
+  }
+
+  const resumeAudio = audioContext.state === 'suspended'
+    ? audioContext.resume().catch(() => {})
+    : Promise.resolve();
+
+  if (!soundsLoading) {
+    soundsLoading = loadSoundBuffers().catch(error => {
+      soundsLoading = null;
+      console.error('Could not load typing sounds:', error);
+    });
+  }
+
+  return Promise.all([resumeAudio, soundsLoading]);
+}
+
+function loadSoundBuffers() {
+  const decodeSound = async (path) => {
+    const response = await fetch(versionedAsset(path), { cache: 'force-cache' });
+    if (!response.ok) {
+      throw new Error(`Could not fetch sound: ${path}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return decodeAudioData(arrayBuffer);
+  };
+
+  const tasks = Object.entries(soundFiles).map(async ([type, files]) => {
+    soundBuffers[type] = Array.isArray(files)
+      ? await Promise.all(files.map(decodeSound))
+      : await decodeSound(files);
+  });
+
+  return Promise.all(tasks);
+}
+
+function decodeAudioData(arrayBuffer) {
+  return new Promise((resolve, reject) => {
+    try {
+      const decoded = audioContext.decodeAudioData(arrayBuffer, resolve, reject);
+      if (decoded && typeof decoded.then === 'function') {
+        decoded.then(resolve, reject);
+      }
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+function isStandaloneDisplay() {
+  return window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true;
+}
+
+function updateFullscreenButtonVisibility() {
+  const fullscreenBtn = document.getElementById('fullscreen-btn');
+  if (!fullscreenBtn) return;
+  fullscreenBtn.classList.toggle('hidden', isStandaloneDisplay());
 }
 
 
@@ -385,7 +524,7 @@ function applyTheme() {
   // Update theme stylesheet
   const themeLink = document.querySelector('link[href^="./assets/styles/theme-"]');
   if (themeLink) {
-    themeLink.href = `./assets/styles/theme-${currentTheme}.css?v=3.0`;
+    themeLink.href = versionedAsset(`./assets/styles/theme-${currentTheme}.css`);
   }
   
   // Update UI elements
@@ -652,12 +791,18 @@ function handleBackgroundUpload(e) {
 function toggleSound() {
   const soundBtn = document.getElementById('sound-btn');
   const volumePopup = document.getElementById('volume-popup');  
+  const tooltip = window.bootstrap && bootstrap.Tooltip ? bootstrap.Tooltip.getInstance(soundBtn) : null;
+  if (tooltip) {
+    tooltip.hide();
+  }
+
   if (volumePopup.classList.contains('hidden')) {
+    if (shouldUseMediaSounds()) {
+      ensureMediaSoundsReady();
+    } else {
+      ensureSoundsReady();
+    }
     volumePopup.classList.remove('hidden');
-    
-    const btnRect = soundBtn.getBoundingClientRect();
-    volumePopup.style.left = (btnRect.right + 100) + 'px';
-    volumePopup.style.top = (btnRect.top + 20) + 'px';
   } else {
     volumePopup.classList.add('hidden');
   }
@@ -1522,6 +1667,11 @@ function initBootstrapTooltips() {
     
     const elementsWithTitle = document.querySelectorAll('[title]');
     elementsWithTitle.forEach(el => {
+      if (el.id === 'sound-btn') {
+        el.removeAttribute('title');
+        return;
+      }
+
       const title = el.getAttribute('title');
       if (title) {
         el.removeAttribute('title');
@@ -1592,10 +1742,12 @@ function toggleToolbarAndStatusbar(mode = 'hide') {
   if (window.innerWidth <= 768) {
     if (mode == 'hide') {
       toolbar.style.opacity = 0;
-      statusBar.style.opacity = 0;
+      statusBar.style.opacity = 1;
+      statusBar.style.bottom = 'env(safe-area-inset-bottom, 0px)';
     } else {
       toolbar.style.opacity = 1;
       statusBar.style.opacity = 1;
+      statusBar.style.bottom = 'env(safe-area-inset-bottom, 0px)';
     }
   } else {
     if (mode == 'hide') {
@@ -1718,8 +1870,35 @@ document.addEventListener('DOMContentLoaded', () => {
     soundVolume = parseInt(e.target.value) / 100;
     document.getElementById('volume-value').textContent = e.target.value + '%';
     updateSoundButton();
+    Object.values(mediaSounds).flat().forEach(sound => {
+      sound.volume = soundVolume / 3;
+    });
     localStorage.setItem('odak_sound_volume', soundVolume);
   });
+
+  document.getElementById('close-volume').addEventListener('click', () => {
+    document.getElementById('volume-popup').classList.add('hidden');
+  });
+
+  window.addEventListener('resize', () => {
+    updateFullscreenButtonVisibility();
+    toggleToolbarAndStatusbar('show');
+  });
+
+  const standaloneMedia = window.matchMedia('(display-mode: standalone)');
+  if (standaloneMedia.addEventListener) {
+    standaloneMedia.addEventListener('change', updateFullscreenButtonVisibility);
+  } else if (standaloneMedia.addListener) {
+    standaloneMedia.addListener(updateFullscreenButtonVisibility);
+  }
+
+  document.addEventListener('pointerdown', () => {
+    if (shouldUseMediaSounds()) {
+      ensureMediaSoundsReady();
+    } else {
+      ensureSoundsReady();
+    }
+  }, { once: true, passive: true });
   
   document.getElementById('upload-bg-btn').addEventListener('click', () => {
     document.getElementById('bg-file-input').click();

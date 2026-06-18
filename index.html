@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- 
   Odak.app is a clean, minimalist, and privacy-respecting writing app with live Markdown rendering—built to keep you in the flow. No accounts, no ads, no cloud, and no distractions. Everything is stored locally on your device.
-  v=3.0
+  v=3.0-20260626-IV
   Author: Araz Gholami @arazgholami
   Email: contact@odak.app
 -->
@@ -10,19 +10,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
   <title>Odak.app - Writing Tool</title>
-  <link rel="manifest" href="manifest.json">
-  <link rel="icon" href="./assets/images/odak-icon.png" type="image/png">
-  <link rel="icon" href="./assets/images/odak-icon-192.png" sizes="192x192" type="image/png">
-  <link rel="apple-touch-icon" href="./assets/images/odak-icon.png" sizes="180x180">
-  <link rel="mask-icon" href="./assets/images/odak-icon.png" color="#000000">
+  <link rel="manifest" href="manifest.json?v=3.0-20260626-IV">
+  <link rel="icon" href="./assets/images/odak-icon.png?v=3.0-20260626-IV" type="image/png">
+  <link rel="icon" href="./assets/images/odak-icon-192.png?v=3.0-20260626-IV" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="./assets/images/odak-icon.png?v=3.0-20260626-IV" sizes="180x180">
+  <link rel="mask-icon" href="./assets/images/odak-icon.png?v=3.0-20260626-IV" color="#000000">
   <meta name="msapplication-TileColor" content="#000000">
-  <meta name="msapplication-TileImage" content="./assets/images/odak-icon.png">
+  <meta name="msapplication-TileImage" content="./assets/images/odak-icon.png?v=3.0-20260626-IV">
   <meta name="theme-color" content="#000000">
-  <link rel="stylesheet" href="./assets/vendor/bootstrap.min.css">
-  <link rel="stylesheet" href="./assets/vendor/font-awesome.min.css">
-  <link rel="stylesheet" href="./assets/styles/theme-light.css?v=3.0">
-  <link rel="stylesheet" href="./assets/styles/style.css?v=3.0">
-  <link rel="stylesheet" href="./assets/styles/responsive.css?v=3.0">
+  <link rel="stylesheet" href="./assets/vendor/bootstrap.min.css?v=3.0-20260626-IV">
+  <link rel="stylesheet" href="./assets/vendor/font-awesome.min.css?v=3.0-20260626-IV">
+  <link rel="stylesheet" href="./assets/styles/theme-light.css?v=3.0-20260626-IV">
+  <link rel="stylesheet" href="./assets/styles/style.css?v=3.0-20260626-IV">
+  <link rel="stylesheet" href="./assets/styles/responsive.css?v=3.0-20260626-IV">
 </head>
 <body>
   <div id="app">
@@ -30,7 +30,7 @@
     <div id="toolbar" role="toolbar" aria-label="Writing tools">
       <button id="fullscreen-btn" title="Toggle Fullscreen" aria-label="Toggle fullscreen"><i class="fas fa-expand"></i></button>
       <button id="list-btn" title="Your Writings" aria-label="Your writings"><i class="fas fa-list"></i></button>
-      <button id="sound-btn" title="Volume Control" aria-label="Volume control"><i class="fas fa-volume-up"></i></button>
+      <button id="sound-btn" aria-label="Volume control"><i class="fas fa-volume-up"></i></button>
       <button id="settings-btn" title="Settings" aria-label="Settings"><i class="fas fa-cog"></i></button>
       <button id="info-btn" title="Info" aria-label="Info"><i class="fas fa-info-circle"></i></button>
       <button id="load-btn" title="Load MD File" aria-label="Load Markdown file"><i class="fas fa-file-upload"></i></button>
@@ -38,6 +38,7 @@
     </div>
     
     <div id="volume-popup" class="popup hidden">
+      <button id="close-volume" class="close-popup volume-close" aria-label="Close volume control"><i class="fas fa-times"></i></button>
       <div class="volume-control">
         <input type="range" id="volume-slider" min="0" max="100" value="50" class="volume-slider">
         <div class="volume-label">Volume: <span id="volume-value">50%</span></div>
@@ -135,7 +136,7 @@
 
     <div id="info-popup" class="popup hidden" role="dialog" aria-modal="true" aria-labelledby="info-title">
       <div class="popup-header">
-        <h3 id="info-title"><img src="./assets/images/odak.svg" alt="" class="popup-logo"> Welcome to Odak.app</h3>
+        <h3 id="info-title"><img src="./assets/images/odak.svg?v=3.0-20260626-IV" alt="" class="popup-logo"> Welcome to Odak.app</h3>
         <button id="close-info" class="close-popup" aria-label="Close info"><i class="fas fa-times"></i></button>
       </div>
       <div id="info-content" style="padding: 20px; overflow-y: auto; max-height: 60vh;">
@@ -189,7 +190,7 @@
     <div id="status-bar">
       <div class="status-left">
         <a href="https://odak.app" class="logo-link">
-          <img src="./assets/images/odak.svg" alt="" class="status-logo">
+          <img src="./assets/images/odak.svg?v=3.0-20260626-IV" alt="" class="status-logo">
           <span><span class="title">Odak.app</span><small class="author">Reimagined by Araz Gholami</small></span>
         </a>
         <span class="status-link">v3.0</span>
@@ -206,9 +207,9 @@
   </div>
   <input type="file" id="file-input" accept=".md,.txt" style="display: none;">
   <input type="file" id="bg-file-input" accept="image/*" style="display: none;">
-  <script src="./assets/vendor/bootstrap.bundle.min.js"></script>
-  <script src="./assets/scripts/draggable-image.js?v=3.0"></script>
-  <script src="./assets/scripts/wysiwyg-markdown-editor.js?v=4.0"></script>
-  <script src="./assets/scripts/script.js?v=3.0.1"></script>
+  <script src="./assets/vendor/bootstrap.bundle.min.js?v=3.0-20260626-IV"></script>
+  <script src="./assets/scripts/draggable-image.js?v=3.0-20260626-IV"></script>
+  <script src="./assets/scripts/wysiwyg-markdown-editor.js?v=3.0-20260626-IV"></script>
+  <script src="./assets/scripts/script.js?v=3.0-20260626-IV"></script>
 </body>
 </html>

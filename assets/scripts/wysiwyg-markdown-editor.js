@@ -321,7 +321,7 @@ class MarkdownEditor {
             textNodes.push(node.textContent);
         }
         
-        return textNodes.join('');
+        return textNodes.join('').replace(/\u200B/g, '');
     }
 
     normalizeCheckboxPlaceholder(range) {
