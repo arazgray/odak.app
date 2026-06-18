@@ -1,20 +1,20 @@
 /*
  * Odak.app is a clean, minimalist, and privacy-respecting writing app with live Markdown rendering—built to keep you in the flow. No accounts, no ads, no cloud, and no distractions. Everything is stored locally on your device.
- * v=3.0-20260626-IV
+ * v=3.0-20260626-V
  * Author: Araz Gholami @arazgholami
  * Email: contact@arazgholami.com
  */
 
 @font-face {
   font-family: 'Vazir';
-  src: url('../fonts/Vazirmatn-Regular.woff2?v=3.0-20260626-IV') format('woff2');
+  src: url('../fonts/Vazirmatn-Regular.woff2?v=3.0-20260626-V') format('woff2');
   font-weight: normal;
   font-style: normal;
 }
 
 @font-face {
   font-family: 'Vazir';
-  src: url('../fonts/Vazirmatn-Bold.woff2?v=3.0-20260626-IV') format('woff2');
+  src: url('../fonts/Vazirmatn-Bold.woff2?v=3.0-20260626-V') format('woff2');
   font-weight: bold;
   font-style: normal;
 }
@@ -51,17 +51,17 @@ body {
 }
 
 body[data-theme="light"] #editor {
-  background-image: url('../images/white-paper.png?v=3.0-20260626-IV');
+  background-image: url('../images/white-paper.png?v=3.0-20260626-V');
   background-repeat: repeat;
 }
 
 body[data-theme="dark"] #editor {
-  background-image: url('../images/dark-paper.png?v=3.0-20260626-IV');
+  background-image: url('../images/dark-paper.png?v=3.0-20260626-V');
   background-repeat: repeat;
 }
 
 body[data-theme="odak"] #editor {
-  background-image: url('../images/odak-paper.png?v=3.0-20260626-IV');
+  background-image: url('../images/odak-paper.png?v=3.0-20260626-V');
   background-repeat: repeat;
 }
 
@@ -878,15 +878,15 @@ body {
 }
 
 #default-bg {
-  background-image: url('../images/white-paper.png?v=3.0-20260626-IV');
+  background-image: url('../images/white-paper.png?v=3.0-20260626-V');
 }
 
 [data-theme="dark"] #default-bg {
-  background-image: url('../images/dark-paper.png?v=3.0-20260626-IV');
+  background-image: url('../images/dark-paper.png?v=3.0-20260626-V');
 }
 
 [data-theme="odak"] #default-bg {
-  background-image: url('../images/odak-paper.png?v=3.0-20260626-IV');
+  background-image: url('../images/odak-paper.png?v=3.0-20260626-V');
 }
 
 #custom-bg {

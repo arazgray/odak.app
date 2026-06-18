@@ -1,6 +1,6 @@
 // Service Worker for Odak App
 
-const ASSET_VERSION = '3.0-20260626-IV';
+const ASSET_VERSION = '3.0-20260626-V';
 const CACHE_NAME = `odak-app-cache-v${ASSET_VERSION}`;
 const versioned = url => `${url}?v=${ASSET_VERSION}`;
 const urlsToCache = [
@@ -21,6 +21,7 @@ const urlsToCache = [
   versioned('/assets/images/dark-paper.png'),
   versioned('/assets/images/white-paper.png'),
   versioned('/manifest.json'),
+  versioned('/apple-icon.png'),
   versioned('/assets/fonts/Vazirmatn-Regular.woff2'),
   versioned('/assets/fonts/Vazirmatn-Bold.woff2'),
   versioned('/assets/webfonts/fa-solid-900.ttf'),

@@ -98,6 +98,14 @@
     padding: 6px 10px calc(6px + env(safe-area-inset-bottom, 0px));
     opacity: 1;
   }
+
+  body.standalone-mode #status-bar {
+    padding-bottom: calc(36px + env(safe-area-inset-bottom, 0px));
+  }
+
+  body.standalone-mode #editor {
+    padding-bottom: calc(118px + env(safe-area-inset-bottom, 0px));
+  }
   .status-left {
     min-width: 0;
   }

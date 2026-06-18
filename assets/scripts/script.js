@@ -1,6 +1,6 @@
 /*
  * Odak.app is a clean, minimalist, and privacy-respecting writing app with live Markdown rendering—built to keep you in the flow. No accounts, no ads, no cloud, and no distractions. Everything is stored locally on your device.
- * v=3.0-20260626-IV
+ * v=3.0-20260626-V
  * Author: Araz Gholami @arazgholami
  * Email: contact@arazgholami.com
  */
@@ -17,7 +17,7 @@ let documents = {};
 let customBackground = null; 
 let documentSearchQuery = '';
 let documentSortMode = 'updated-desc';
-const ASSET_VERSION = '3.0-20260626-IV';
+const ASSET_VERSION = '3.0-20260626-V';
 
 let fontFamily = 'Vazir'; 
 let fontSize = 120; 
@@ -40,7 +40,7 @@ Visit [Odak.app](https://odak.app) or [email the author](mailto:contact@odak.app
 
 ### Image
 
-![Odak logo](https://odak.app/assets/images/odak.svg?v=3.0-20260626-IV)
+![Odak logo](https://odak.app/assets/images/odak.svg?v=3.0-20260626-V)
 <!-- odak:image {"x":707,"y":279,"width":86,"height":86} -->
 ## Lists
 
@@ -465,6 +465,7 @@ function isStandaloneDisplay() {
 
 function updateFullscreenButtonVisibility() {
   const fullscreenBtn = document.getElementById('fullscreen-btn');
+  document.body.classList.toggle('standalone-mode', isStandaloneDisplay());
   if (!fullscreenBtn) return;
   fullscreenBtn.classList.toggle('hidden', isStandaloneDisplay());
 }
