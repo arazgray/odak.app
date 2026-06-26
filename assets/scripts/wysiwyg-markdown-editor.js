@@ -3,8 +3,8 @@
  * v=4.0
  * A lightweight, real-time markdown editor with live rendering and LTR-RTL support
  * Usage: MarkdownEditor.init('your-div-id');
- * Author: Araz Gholami @arazgholami
- * Email: contact@arazgholami.com
+ * Author: Araz Gray @arazgray
+ * Email: contact@arazgray.com
  */
 
 class MarkdownEditor {

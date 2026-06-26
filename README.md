@@ -1,21 +1,21 @@
 <p align="center">
-  <img src="https://github.com/arazgholami/odak.app/blob/main/assets/images/odak.svg" alt="Odak Logo" height="64"/>
+  <img src="https://github.com/arazgray/odak.app/blob/main/assets/images/odak.svg" alt="Odak Logo" height="64"/>
   <h1 align="center" style="display:inline">Odak.app</h1>
 </p>
 
 <p align="center">
   <strong>Distraction-free Markdown writing app, fully offline and local-first.</strong><br>
   <strong>Version 3.0</strong><br>
-  <a href="https://odak.app">Try it now!</a> | <a href="https://github.com/arazgholami/markdown-editor">Powered by WYSIWYG Markdown Editor</a>
+  <a href="https://odak.app">Try it now!</a> | <a href="https://github.com/arazgray/markdown-editor">Powered by WYSIWYG Markdown Editor</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/arazgholami/odak.app/releases">
-    <img src="https://img.shields.io/github/v/release/arazgholami/odak.app?label=version&color=brightgreen" alt="Version">
+  <a href="https://github.com/arazgray/odak.app/releases">
+    <img src="https://img.shields.io/github/v/release/arazgray/odak.app?label=version&color=brightgreen" alt="Version">
   </a>
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT">
-  <img src="https://img.shields.io/github/last-commit/arazgholami/odak.app" alt="Last Commit">
-  <img src="https://img.shields.io/github/languages/top/arazgholami/odak.app" alt="Top Language">
+  <img src="https://img.shields.io/github/last-commit/arazgray/odak.app" alt="Last Commit">
+  <img src="https://img.shields.io/github/languages/top/arazgray/odak.app" alt="Top Language">
 </p>
 
 ---
@@ -71,7 +71,7 @@ Pull requests and feedback are always welcome. Whether it's a typo fix or a majo
 
 Support development:
 
-<a href="https://buymeacoffee.com/arazgholami">
+<a href="https://buymeacoffee.com/arazgray">
   <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" width="200" alt="Buy Me A Coffee">
 </a>
 
@@ -85,6 +85,6 @@ This project is licensed under the **MIT License**.
 
 ## Contact
 
-**Araz Gholami**  
-Email: [contact@arazgholami.com](mailto:contact@arazgholami.com)  
-Website: [arazgholami.com](https://arazgholami.com)
+**Araz Gray**  
+Email: [contact@arazgray.com](mailto:contact@arazgray.com)  
+Website: [arazgray.com](https://arazgray.com)
