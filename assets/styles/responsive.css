@@ -19,8 +19,45 @@
   }
 }
 
+@media (max-width: 768px) {
+  #toolbar {
+    top: 0;
+    left: 0;
+    transform: none;
+    flex-direction: row;
+    width: 100%;
+    padding: calc(4px + env(safe-area-inset-top, 0px))
+      max(4px, env(safe-area-inset-right, 0px)) 4px max(4px, env(safe-area-inset-left, 0px));
+    border-radius: 0;
+    justify-content: center;
+    gap: 0;
+  }
+
+  #toolbar button {
+    margin: 0;
+    padding: 0;
+    flex: 0 1 44px;
+    min-width: 0;
+    min-height: 44px;
+  }
+
+  #editor {
+    padding-top: calc(70px + env(safe-area-inset-top, 0px));
+  }
+}
+
 @media (max-width: 600px) {
-  #counter, .author{
+  .author {
+    display: none;
+  }
+
+  #counter {
+    margin-inline-end: 2px;
+    white-space: nowrap;
+    font-size: 0.75rem;
+  }
+
+  #save-status:not(:empty):not(.save-error) + #counter {
     display: none;
   }
 
@@ -28,7 +65,7 @@
     width: 90%;
     max-width: 90vw;
     font-size: 0.9rem;
-    max-height: 82vh;
+    max-height: 82dvh;
   }
 
   .popup-header {
@@ -49,7 +86,7 @@
   }
 
   .document-item {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     gap: 6px 10px;
   }
 
@@ -60,58 +97,50 @@
   }
 
   .document-actions {
-    grid-column: 2;
-    grid-row: 1 / span 2;
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .document-actions button {
+    width: 44px;
+    height: 44px;
   }
 
   #editor {
     padding: 15px;
-    padding-top: 70px;
+    padding-top: calc(70px + env(safe-area-inset-top, 0px));
     padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
     font-size: var(--base-font-size, 120%);
   }
 
-  #toolbar {
-    top: 0;
-    left: 0 !important;
-    transform: none;
-    flex-direction: row;
-    width: 100%;
-    padding: calc(8px + env(safe-area-inset-top, 0px)) 8px 8px;
-    border-radius: 0;
-    justify-content: center;
-    border-left: none;
-    border-right: none;
-    border-top: none;
-    gap: 4px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  #toolbar button {
-    margin: 0 4px;
-    flex: 0 0 auto;
-  }
-
   #status-bar {
     gap: 8px;
-    bottom: env(safe-area-inset-bottom, 0px);
+    bottom: 0;
     padding: 6px 10px calc(6px + env(safe-area-inset-bottom, 0px));
     opacity: 1;
   }
 
-  body.standalone-mode #status-bar {
-    padding-bottom: calc(36px + env(safe-area-inset-bottom, 0px));
-  }
-
-  body.standalone-mode #editor {
-    padding-bottom: calc(118px + env(safe-area-inset-bottom, 0px));
-  }
   .status-left {
     min-width: 0;
   }
 
   .status-right {
-    flex: 0 0 auto;
+    min-width: 0;
+    justify-content: flex-end;
+  }
+
+  #save-status {
+    font-size: 0.75rem;
+    margin-inline-end: 2px;
+  }
+
+  #save-status.save-error {
+    position: absolute;
+    bottom: 100%;
+    right: 0;
+    padding: 6px 10px;
+    background: var(--toolbar-bg);
+    border: 1px solid var(--border-color);
   }
 
   .logo-link {

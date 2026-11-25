@@ -1,6 +1,6 @@
 /*
  * Odak.app is a clean, minimalist, and privacy-respecting writing app with live Markdown rendering—built to keep you in the flow. No accounts, no ads, no cloud, and no distractions. Everything is stored locally on your device.
- * v=3.0-20260626-V
+ * v=3.1
  * Author: Araz Gray @arazgray
  * Email: contact@arazgray.com
  */
@@ -9,15 +9,20 @@ let currentDocumentId = null;
 let isTyping = false;
 let typingTimer = null;
 let autosaveTimer = null;
-let soundEnabled = true;
-let soundVolume = 0.5; 
+let lastAudibleVolume = 0.5;
+let activeDialog = null;
+let dialogTrigger = null;
+let soundEnabled = false;
+let soundVolume = 0;
 let currentTheme = 'light'; // Default theme
-let isFullscreen = false;
-let documents = {};
+let documents = Object.create(null);
+let storedDocuments = Object.create(null);
+let draftDirty = false;
+let libraryLocked = false;
 let customBackground = null; 
 let documentSearchQuery = '';
 let documentSortMode = 'updated-desc';
-const ASSET_VERSION = '3.0-20260626-V';
+const ASSET_VERSION = '3.1';
 
 let fontFamily = 'Vazir'; 
 let fontSize = 120; 
@@ -28,7 +33,7 @@ let useCustomBg = false;
 const EXAMPLE_DOCUMENT_ID = 'odak_example_markdown_v3';
 const EXAMPLE_MARKDOWN = `# Odak Markdown Example
 
-This document shows the Markdown syntax currently supported by Odak 3.0.
+This document shows the Markdown syntax currently supported by Odak 3.1.
 
 ## Text Formatting
 
@@ -40,7 +45,7 @@ Visit [Odak.app](https://odak.app) or [email the author](mailto:contact@odak.app
 
 ### Image
 
-![Odak logo](https://odak.app/assets/images/odak.svg?v=3.0-20260626-V)
+![Odak logo](./assets/images/odak.svg?v=3.1)
 <!-- odak:image {"x":707,"y":279,"width":86,"height":86} -->
 ## Lists
 
@@ -102,19 +107,24 @@ function handleTypingState() {
 
 function scheduleAutosave() {
   clearTimeout(autosaveTimer);
+  const id = currentDocumentId;
   autosaveTimer = setTimeout(() => {
-    saveCurrentDocumentContent();
+    if (id === currentDocumentId) flushDraft();
   }, 700);
 }
 
+function flushDraft() {
+  clearTimeout(autosaveTimer);
+  return !draftDirty || saveCurrentDocumentContent();
+}
+
 MarkdownEditor.init('editor', {
-  placeholder: 'What\'s in your mind?',
+  placeholder: 'What’s on your mind?',
   autofocus: true
 });
 
 const editor = document.getElementById('editor');
 const toolbar = document.getElementById('toolbar');
-const topbar = document.getElementById('topbar');
 const statusBar = document.getElementById('status-bar');
 const settingsPopup = document.getElementById('settings-popup');
 const counter = document.getElementById('counter');
@@ -123,11 +133,25 @@ const documentsListElement = document.getElementById('documents-list');
 const fileInput = document.getElementById('file-input');
 
 // Add input event listener for typing
-editor.addEventListener('input', () => {
-  handleTypingState();
+function markDraftChanged(event) {
+  if (event?.target.matches('input[type="checkbox"]')) syncCheckboxAttribute(event);
+  draftDirty = true;
+  labelCheckboxes();
   updateCounter();
   scheduleAutosave();
+}
+
+editor.addEventListener('input', event => {
+  if (event.isComposing) return;
+  if (event.target === editor) handleTypingState();
+  markDraftChanged(event);
 });
+editor.addEventListener('odak-change', markDraftChanged);
+editor.addEventListener('compositionend', markDraftChanged);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushDraft();
+});
+window.addEventListener('pagehide', flushDraft);
 
 // Add mouse movement event listener to show UI elements
 document.addEventListener('mousemove', () => {
@@ -178,12 +202,14 @@ function init() {
   }
   
   loadDocumentsFromStorage();  
-  ensureExampleDocument();
+  if (!libraryLocked) ensureExampleDocument();
   loadPreferences();  
   if (currentDocumentId && documents[currentDocumentId]) {
     loadDocument(currentDocumentId);
   } else {
-    createNewDocument(true);
+    const latest = Object.values(documents).sort((a, b) => Date.parse(b.updated) - Date.parse(a.updated))[0];
+    if (latest) loadDocument(latest.id);
+    else generateNewDocument();
   }  
   updateCounter();  
   applyTheme();  
@@ -194,104 +220,119 @@ function init() {
   toggleToolbarAndStatusbar('show');
   
   // Check if this is the first visit
-  const hasSeenInfo = localStorage.getItem('odak_has_seen_info');
+  const hasSeenInfo = getPreference('odak_has_seen_info');
   if (!hasSeenInfo) {
     showInfoPopup();
   }
 }
 
 function loadDocumentsFromStorage() {
-  const savedDocuments = localStorage.getItem('odak_documents');
-  if (savedDocuments) {
-    try {
-      const parsed = JSON.parse(savedDocuments);
-      documents = parsed && typeof parsed === 'object' ? parsed : {};
-    } catch (error) {
-      console.error('Could not parse saved documents. Starting with an empty library.', error);
-      documents = {};
-      localStorage.removeItem('odak_documents');
-      localStorage.removeItem('odak_current_document');
-    }
-  }
-  
-  const lastDocumentId = localStorage.getItem('odak_current_document');
-  if (lastDocumentId) {
-    currentDocumentId = lastDocumentId;
-  }
-
-  if (currentDocumentId && !documents[currentDocumentId]) {
-    currentDocumentId = null;
-    localStorage.removeItem('odak_current_document');
+  try {
+    storedDocuments = readLibrary();
+    documents = Object.assign(Object.create(null), structuredClone(storedDocuments));
+    const lastDocumentId = getPreference('odak_current_document');
+    currentDocumentId = documents[lastDocumentId] ? lastDocumentId : null;
+  } catch (error) {
+    libraryLocked = true;
+    console.error('Unable to read Odak library:', error);
+    showSaveStatus('Library unavailable', true);
   }
 }
 
-function ensureExampleDocument() {
-  if (documents[EXAMPLE_DOCUMENT_ID]) return;
+function readLibrary() {
+  const raw = localStorage.getItem('odak_documents');
+  if (raw === null) return Object.create(null);
+  const value = JSON.parse(raw);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('Invalid library');
+  for (const [id, doc] of Object.entries(value)) {
+    if (!doc || doc.id !== id || typeof doc.content !== 'string' || typeof doc.title !== 'string') {
+      throw Error('Invalid writing');
+    }
+  }
+  return Object.assign(Object.create(null), value);
+}
+
+function getPreference(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+function setPreference(key, value) {
+  try { localStorage.setItem(key, value); return true; } catch { return false; }
+}
+
+function ensureExampleDocument(force = false) {
+  if (documents[EXAMPLE_DOCUMENT_ID]) {
+    setPreference('odak_example_seeded', 'true');
+    return;
+  }
+  if (!force && getPreference('odak_example_seeded') === 'true') return;
 
   const hadDocuments = Object.keys(documents).length > 0;
   const now = new Date().toISOString();
   documents[EXAMPLE_DOCUMENT_ID] = {
     id: EXAMPLE_DOCUMENT_ID,
     title: 'Odak Markdown Example',
+    customTitle: true,
     content: convertMarkdownToHtml(EXAMPLE_MARKDOWN),
     created: now,
     updated: now
   };
 
-  if (!hadDocuments || !currentDocumentId) {
+  if (!force && (!hadDocuments || !currentDocumentId)) {
     currentDocumentId = EXAMPLE_DOCUMENT_ID;
   }
 
-  saveDocumentsToStorage();
+  if (saveDocumentsToStorage()) setPreference('odak_example_seeded', 'true');
 }
 
 function loadPreferences() {
-  
-  const savedSoundVolume = localStorage.getItem('odak_sound_volume');
-  if (savedSoundVolume !== null) {
-    soundVolume = parseFloat(savedSoundVolume);
+  const lastVolume = Number(getPreference('odak_last_audible_volume'));
+  if (lastVolume > 0 && lastVolume <= 1) lastAudibleVolume = lastVolume;
+  const savedSoundVolume = getPreference('odak_sound_volume');
+  if (savedSoundVolume !== null && Number.isFinite(Number(savedSoundVolume))) {
+    soundVolume = Math.max(0, Math.min(1, Number(savedSoundVolume)));
+    if (soundVolume > 0) lastAudibleVolume = soundVolume;
     document.getElementById('volume-slider').value = soundVolume * 100;
     document.getElementById('volume-value').textContent = Math.round(soundVolume * 100) + '%';
     soundEnabled = soundVolume > 0;
     updateSoundButton();
   } else {
     
-    soundVolume = 0.5;
-    document.getElementById('volume-slider').value = 50;
-    document.getElementById('volume-value').textContent = '50%';
+    soundVolume = 0;
+    document.getElementById('volume-slider').value = 0;
+    document.getElementById('volume-value').textContent = '0%';
     updateSoundButton();
   }  
-  const savedTheme = localStorage.getItem('odak_theme');
+  const savedTheme = getPreference('odak_theme');
   if (savedTheme && ['light', 'dark', 'odak'].includes(savedTheme)) {
     currentTheme = savedTheme;
   } else {
     // Migrate from old theme system if needed
-    const oldThemePref = localStorage.getItem('odak_dark_mode');
+    const oldThemePref = getPreference('odak_dark_mode');
     if (oldThemePref !== null) {
       currentTheme = oldThemePref === 'true' ? 'dark' : 'light';
-      localStorage.removeItem('odak_dark_mode');
-      localStorage.setItem('odak_theme', currentTheme);
+      setPreference('odak_theme', currentTheme);
     }
   }
   applyTheme();  
-  const savedFontFamily = localStorage.getItem('odak_font_family');
+  const savedFontFamily = getPreference('odak_font_family');
   if (savedFontFamily !== null) {
     fontFamily = savedFontFamily;
   }  
-  const savedFontSize = localStorage.getItem('odak_font_size');
+  const savedFontSize = getPreference('odak_font_size');
   if (savedFontSize !== null) {
-    fontSize = parseInt(savedFontSize);
+    fontSize = clampSetting(savedFontSize, 50, 200, 120);
   }
   document.getElementById('font-size-slider').value = fontSize;
   updateFontSizeLabel();  
-  const savedEditorWidth = localStorage.getItem('odak_editor_width');
+  const savedEditorWidth = getPreference('odak_editor_width');
   if (savedEditorWidth !== null) {
-    editorWidth = parseInt(savedEditorWidth);
+    editorWidth = clampSetting(savedEditorWidth, 400, 1600, 830);
     document.getElementById('editor-width-input').value = editorWidth;
   }  
   try {
-    const savedCustomBackground = localStorage.getItem('odak_custom_background');
-    const savedUseCustomBg = localStorage.getItem('odak_use_custom_bg');
+    const savedCustomBackground = getPreference('odak_custom_background');
+    const savedUseCustomBg = getPreference('odak_use_custom_bg');
     
     if (savedCustomBackground && savedCustomBackground !== 'null') {
       customBackground = savedCustomBackground;
@@ -308,15 +349,21 @@ function loadPreferences() {
     console.error('Error loading background settings:', error);
     useCustomBg = false;
     
-    localStorage.removeItem('odak_custom_background');
-    localStorage.setItem('odak_use_custom_bg', 'false');
+    setPreference('odak_use_custom_bg', 'false');
   }  
   applySettings();
+  editor.spellcheck = getPreference('odak_spellcheck') === 'true';
+  document.getElementById('spellcheck-setting').checked = editor.spellcheck;
+}
+
+function clampSetting(value, min, max, fallback) {
+  const number = Number.parseInt(value, 10);
+  return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
 }
 
 
 function handleKeyDown(e) {
-  if (!soundEnabled) return;  
+  if (!soundEnabled || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === 'Backspace') {
     playSound('backspace');
   } else if (e.key === 'Enter') {
@@ -467,42 +514,32 @@ function updateFullscreenButtonVisibility() {
   const fullscreenBtn = document.getElementById('fullscreen-btn');
   document.body.classList.toggle('standalone-mode', isStandaloneDisplay());
   if (!fullscreenBtn) return;
-  fullscreenBtn.classList.toggle('hidden', isStandaloneDisplay());
+  const active = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+  fullscreenBtn.classList.toggle('hidden', isStandaloneDisplay() ||
+    !(document.fullscreenEnabled || document.webkitFullscreenEnabled));
+  fullscreenBtn.setAttribute('aria-pressed', String(active));
+  fullscreenBtn.innerHTML = `<i class="fas fa-${active ? 'compress' : 'expand'}"></i>`;
 }
 
 
-function toggleFullscreen() {
-  if (!isFullscreen) {
-    if (document.documentElement.requestFullscreen) {
-      document.documentElement.requestFullscreen();
-    } else if (document.documentElement.mozRequestFullScreen) {
-      document.documentElement.mozRequestFullScreen();
-    } else if (document.documentElement.webkitRequestFullscreen) {
-      document.documentElement.webkitRequestFullscreen();
-    } else if (document.documentElement.msRequestFullscreen) {
-      document.documentElement.msRequestFullscreen();
+async function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      await (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+    } else {
+      const root = document.documentElement;
+      await (root.requestFullscreen || root.webkitRequestFullscreen)?.call(root);
     }
-    document.getElementById('fullscreen-btn').innerHTML = '<i class="fas fa-compress"></i>';
-  } else {
-    if (document.exitFullscreen) {
-      document.exitFullscreen();
-    } else if (document.mozCancelFullScreen) {
-      document.mozCancelFullScreen();
-    } else if (document.webkitExitFullscreen) {
-      document.webkitExitFullscreen();
-    } else if (document.msExitFullscreen) {
-      document.msExitFullscreen();
-    }
-    document.getElementById('fullscreen-btn').innerHTML = '<i class="fas fa-expand"></i>';
+  } catch {
+    showSaveStatus('Fullscreen unavailable');
   }
-  
-  isFullscreen = !isFullscreen;
+  updateFullscreenButtonVisibility();
 }
 
 function setTheme(theme) {
   if (['light', 'dark', 'odak'].includes(theme)) {
     currentTheme = theme;
-    localStorage.setItem('odak_theme', theme);
+    setPreference('odak_theme', theme);
     applyTheme();
     updateActiveThemeButton();
   }
@@ -515,6 +552,7 @@ function updateActiveThemeButton() {
     } else {
       btn.classList.remove('active');
     }
+    btn.setAttribute('aria-pressed', String(btn.dataset.theme === currentTheme));
   });
 }
 
@@ -545,7 +583,7 @@ function toggleSettings() {
   updateBackgroundSelection();  
   
   // Toggle settings popup visibility
-  settingsPopup.classList.toggle('hidden');
+  toggleDialog(settingsPopup);
 }
 
 function loadSystemFonts() {
@@ -640,29 +678,6 @@ function applySettings() {
   // Set editor width
   editor.style.maxWidth = editorWidth + 'px';
   
-  // Apply font sizes to all elements
-  const allElements = editor.querySelectorAll('*');
-  allElements.forEach(element => {
-    if (element.tagName === 'H1') {
-      element.style.fontSize = 'var(--h1-font-size)';
-    } else if (element.tagName === 'H2') {
-      element.style.fontSize = 'var(--h2-font-size)';
-    } else if (element.tagName === 'H3') {
-      element.style.fontSize = 'var(--h3-font-size)';
-    } else if (element.tagName === 'H4') {
-      element.style.fontSize = 'calc(var(--h3-font-size) * 0.9)';
-    } else if (element.tagName === 'H5') {
-      element.style.fontSize = 'calc(var(--h3-font-size) * 0.8)';
-    } else if (element.tagName === 'H6') {
-      element.style.fontSize = 'calc(var(--h3-font-size) * 0.7)';
-    } else if (element.tagName === 'DIV' || 
-               element.tagName === 'P' || 
-               element.tagName === 'LI' || 
-               element.tagName === 'BLOCKQUOTE') {
-      element.style.fontSize = 'var(--div-font-size)';
-    }
-  });
-  
   // Apply background and theme
   applyBackground();
   updateBackgroundSelection();
@@ -709,6 +724,8 @@ function updateBackgroundSelection() {
   } else {
     customBg.classList.add('hidden');
   }
+  defaultBg.setAttribute('aria-pressed', String(!useCustomBg));
+  customBg.setAttribute('aria-pressed', String(useCustomBg));
 }
 
 function handleBackgroundUpload(e) {
@@ -783,8 +800,10 @@ function handleBackgroundUpload(e) {
     };
     
     
+    img.onerror = () => showSaveStatus('Could not open the background image');
     img.src = event.target.result;
   };  
+  reader.onerror = () => showSaveStatus('Could not read the background image');
   reader.readAsDataURL(file);  
   e.target.value = '';
 }
@@ -804,9 +823,20 @@ function toggleSound() {
       ensureSoundsReady();
     }
     volumePopup.classList.remove('hidden');
+    soundBtn.setAttribute('aria-expanded', 'true');
+    document.getElementById('volume-slider').focus();
   } else {
-    volumePopup.classList.add('hidden');
+    closeVolume(true);
   }
+}
+
+function closeVolume(restoreFocus = false) {
+  const popup = document.getElementById('volume-popup');
+  if (popup.classList.contains('hidden')) return;
+  popup.classList.add('hidden');
+  const button = document.getElementById('sound-btn');
+  button.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) button.focus();
 }
 
 function updateSoundButton() {
@@ -826,108 +856,138 @@ function updateSoundButton() {
   }
   
   document.getElementById('sound-btn').innerHTML = `<i class="fas ${iconClass}"></i>`;
+  document.getElementById('mute-btn').textContent = soundEnabled ? 'Mute' : 'Unmute';
 }
 
-function createNewDocument(silent = false) {
-  if (silent) {
-    generateNewDocument()
-  } else {
-    if (confirm('Are you sure you want to create a new document? This action cannot be undone.')) {
-      generateNewDocument()
-    }
-  }
+function newDocumentId() {
+  return `doc_${crypto.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
+}
+
+function createNewDocument() {
+  if (flushDraft()) generateNewDocument();
 }
 
 function generateNewDocument() {
-  const newId = 'doc_' + Date.now();  
+  const newId = newDocumentId();
   documents[newId] = {
     id: newId,
     title: 'Untitled Document',
     content: '',
+    customTitle: false,
     created: new Date().toISOString(),
     updated: new Date().toISOString()
   };  
-  currentDocumentId = newId;  
-  saveDocumentsToStorage();  
-  loadDocument(newId);  
+  loadDocument(newId, { discard: true });
+  saveDocumentsToStorage();
   editor.focus();
 }
 
 function saveCurrentDocumentContent() {
-  if (!currentDocumentId) return;
-  if (!documents[currentDocumentId]) {
-    documents[currentDocumentId] = {
-      id: currentDocumentId,
-      title: 'Untitled Document',
-      content: '',
-      created: new Date().toISOString(),
-      updated: new Date().toISOString()
-    };
-  }
-  const content = editor.innerHTML;
-  let title = 'Untitled Document';
-  const firstLine = editor.textContent.trim().split('\n')[0];
-  if (firstLine) {
-    title = firstLine.substring(0, 20);
-  }  
-  documents[currentDocumentId].title = title;
-  documents[currentDocumentId].content = content;
-  documents[currentDocumentId].updated = new Date().toISOString();  
-  saveDocumentsToStorage();
+  const doc = documents[currentDocumentId];
+  if (!doc) return false;
+  snapshotDraft(doc);
+  const saved = saveDocumentsToStorage();
+  if (saved) draftDirty = false;
+  return saved;
 }
 
-window.saveCurrentDocumentContent = saveCurrentDocumentContent;
+function snapshotDraft(doc) {
+  const content = editor.innerHTML;
+  if (doc.content === content) return;
+  if (doc.customTitle === undefined) {
+    const formerAutoTitle = sanitizeWriting(doc.content).textContent.trim().split('\n')[0]?.substring(0, 20) ||
+      'Untitled Document';
+    doc.customTitle = doc.title !== formerAutoTitle;
+  }
+  if (!doc.customTitle) {
+    const firstLine = editor.innerText.replace(/[\u200B\u00A0]/g, ' ').split('\n')
+      .map(line => line.trim()).find(Boolean);
+    doc.title = firstLine ? Array.from(firstLine).slice(0, 48).join('') : 'Untitled Document';
+  }
+  doc.content = content;
+  doc.updated = new Date().toISOString();
+}
 
 function saveCurrentDocument() {
-  if (!currentDocumentId) return;  
-  saveCurrentDocumentContent();
-  const saveBtn = document.getElementById('save-btn');
-  const originalText = saveBtn.textContent;
-  saveBtn.textContent = 'Saved';
-  
-  setTimeout(() => {
-    saveBtn.textContent = originalText;
-  }, 1500);
+  clearTimeout(autosaveTimer);
+  if (saveCurrentDocumentContent()) showSaveStatus('Saved');
 }
 
 function saveDocumentTitle(id, newTitle) {
-  if (!id || !documents[id]) return;  
-  if (!newTitle.trim()) {
-    newTitle = 'Untitled Document';
-  }  
+  if (!documents[id] || !flushDraft()) return;
+  newTitle = newTitle.trim() || 'Untitled Document';
   documents[id].title = newTitle;
+  documents[id].customTitle = true;
   documents[id].updated = new Date().toISOString();  
   saveDocumentsToStorage();
 }
 
+function showSaveStatus(message, error = false) {
+  const status = document.getElementById('save-status');
+  status.textContent = message;
+  status.classList.toggle('save-error', error);
+  status.title = error ? 'Your writing is still in this tab. Download a copy before closing it.' : '';
+}
+
 function saveDocumentsToStorage() {
   try {
-    localStorage.setItem('odak_documents', JSON.stringify(documents));
-    if (currentDocumentId) {
-      localStorage.setItem('odak_current_document', currentDocumentId);
+    if (libraryLocked) throw Error('Library is unavailable');
+    const latest = readLibrary();
+    const changed = (a, b) => JSON.stringify(a) !== JSON.stringify(b);
+    let conflict = false;
+    for (const id of new Set([...Object.keys(storedDocuments), ...Object.keys(documents)])) {
+      if (!changed(storedDocuments[id], documents[id])) continue;
+      if (changed(storedDocuments[id], latest[id]) && latest[id] && changed(documents[id], latest[id])) {
+        const copyId = newDocumentId();
+        latest[copyId] = { ...latest[id], id: copyId, title: `${latest[id].title} (other tab)`, customTitle: true };
+        conflict = true;
+      }
+      if (documents[id]) latest[id] = documents[id];
+      else delete latest[id];
     }
+    // Keep an open editor's snapshot until it is next edited or explicitly reopened.
+    const current = documents[currentDocumentId];
+    localStorage.setItem('odak_documents', JSON.stringify(latest));
+    const currentChangedRemotely = current && !changed(storedDocuments[currentDocumentId], current) &&
+      changed(current, latest[currentDocumentId]);
+    const baseline = currentChangedRemotely ? storedDocuments[currentDocumentId] : latest[currentDocumentId];
+    storedDocuments = Object.assign(Object.create(null), structuredClone(latest));
+    documents = Object.assign(Object.create(null), latest);
+    if (currentChangedRemotely) {
+      documents[currentDocumentId] = current;
+      if (baseline) storedDocuments[currentDocumentId] = structuredClone(baseline);
+    }
+    if (currentDocumentId) setPreference('odak_current_document', currentDocumentId);
+    showSaveStatus(conflict ? 'Other tab’s version kept' : '');
+    return true;
   } catch (error) {
     console.error('Unable to save documents:', error);
-    alert('Odak could not save your latest change. Browser storage may be full.');
+    showSaveStatus(libraryLocked ? 'Library unavailable · download a copy' : 'Not saved · download a copy', true);
+    return false;
   }
 }
 
-function loadDocument(id) {
-  if (!documents[id]) return;
+function loadDocument(id, { discard = false } = {}) {
+  if ((!discard && !flushDraft()) || !documents[id]) return false;
+  clearTimeout(autosaveTimer);
+  draftDirty = false;
   currentDocumentId = id;
-  editor.innerHTML = documents[id].content;
+  editor.replaceChildren(sanitizeWriting(documents[id].content));
+  labelCheckboxes();
   updateCounter();
-  localStorage.setItem('odak_current_document', currentDocumentId);
+  setPreference('odak_current_document', currentDocumentId);
 
   if (typeof initDraggableImages === 'function') {
     initDraggableImages(editor);
   }
+  return true;
 }
 
 function toggleDocumentsList() {
   
-  updateDocumentsList();  
-  listPopup.classList.toggle('hidden');
+  flushDraft();
+  updateDocumentsList();
+  toggleDialog(listPopup);
 }
 
 function updateDocumentsList() {
@@ -966,89 +1026,14 @@ function updateDocumentsList() {
       docItem.classList.add('active');
     }
     
-    const docTitle = document.createElement('div');
+    const docTitle = document.createElement('button');
     docTitle.className = 'document-title';
     docTitle.textContent = doc.title;
-    docTitle.setAttribute('title', 'Double-click to rename');
-    
-    
-    let clickTimer = null;
-    let preventSingleClick = false;
-    
-    docTitle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      
-      if (preventSingleClick) {
-        return;
-      }
-      
-      
-      if (docTitle.contentEditable === 'true') {
-        return;
-      }
-      
-      
-      if (clickTimer === null) {
-        clickTimer = setTimeout(() => {
-          clickTimer = null;
-          if (!preventSingleClick) {
-            
-            loadDocument(doc.id);
-            listPopup.classList.add('hidden');
-          }
-        }, 300); 
-      }
-    });
-    
-    
-    docTitle.addEventListener('dblclick', (e) => {
-      e.stopPropagation();
-      
-      
-      if (clickTimer) {
-        clearTimeout(clickTimer);
-        clickTimer = null;
-      }
-      
-      
-      preventSingleClick = true;
-      
-      
-      docTitle.contentEditable = true;
-      docTitle.focus();
-      
-      
-      const range = document.createRange();
-      range.selectNodeContents(docTitle);
-      const selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-    });
-    
-    
-    docTitle.addEventListener('blur', () => {
-      saveDocumentTitle(doc.id, docTitle.textContent.trim());
-      docTitle.contentEditable = false;
-      
-      
-      setTimeout(() => {
-        preventSingleClick = false;
-      }, 300);
-    });
-    
-    docTitle.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        docTitle.blur();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        docTitle.textContent = doc.title; 
-        docTitle.contentEditable = false;
-        
-        
-        setTimeout(() => {
-          preventSingleClick = false;
-        }, 300);
+    docTitle.title = doc.title;
+    docTitle.addEventListener('click', () => {
+      if (loadDocument(doc.id)) {
+        closeDialog(listPopup);
+        editor.focus();
       }
     });
     
@@ -1065,7 +1050,7 @@ function updateDocumentsList() {
     deleteBtn.setAttribute('aria-label', `Delete ${doc.title}`);
     deleteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (confirm('Are you sure you want to delete this document?')) {
+      if (confirm(`Delete “${doc.title}”? This cannot be undone.`)) {
         deleteDocument(doc.id);
       }
     });
@@ -1087,20 +1072,29 @@ function updateDocumentsList() {
       e.stopPropagation();
       duplicateDocument(doc.id);
     });
-    
+
+    const renameBtn = document.createElement('button');
+    renameBtn.innerHTML = '<i class="fas fa-pen"></i>';
+    renameBtn.title = 'Rename';
+    renameBtn.setAttribute('aria-label', `Rename ${doc.title}`);
+    renameBtn.addEventListener('click', () => {
+      const title = prompt('Writing title', doc.title);
+      if (title !== null) {
+        saveDocumentTitle(doc.id, title);
+        updateDocumentsList();
+        document.getElementById('documents-search').focus();
+      }
+    });
+
     docActions.appendChild(downloadBtn);
     docActions.appendChild(duplicateBtn);
+    docActions.appendChild(renameBtn);
     docActions.appendChild(deleteBtn);
     
     docItem.appendChild(docTitle);
     docItem.appendChild(docDate);
     docItem.appendChild(docActions);
     
-    
-    docItem.addEventListener('click', () => {
-      loadDocument(doc.id);
-      listPopup.classList.add('hidden');
-    });
     
     documentsListElement.appendChild(docItem);
   });  
@@ -1115,31 +1109,39 @@ function formatDate(dateString) {
 }
 
 function deleteDocument(id) {
-  
-  delete documents[id];  
-  saveDocumentsToStorage();  
-  updateDocumentsList();  
-  if (id === currentDocumentId) {
-    createNewDocument(true);
+  if (id !== currentDocumentId && !flushDraft()) return;
+  const previous = documents[id];
+  delete documents[id];
+  if (!saveDocumentsToStorage()) {
+    documents[id] = previous;
+    return;
   }
+  if (id === currentDocumentId) {
+    const next = Object.values(documents).sort((a, b) => Date.parse(b.updated) - Date.parse(a.updated))[0];
+    if (next) loadDocument(next.id, { discard: true });
+    else generateNewDocument();
+  }
+  updateDocumentsList();
+  document.getElementById('documents-search').focus();
 }
 
 function duplicateDocument(id) {
-  if (!documents[id]) return;
+  if (!flushDraft() || !documents[id]) return;
   const source = documents[id];
-  const newId = 'doc_' + Date.now();
+  const newId = newDocumentId();
   const now = new Date().toISOString();
   documents[newId] = {
     id: newId,
     title: `${source.title || 'Untitled Document'} Copy`,
+    customTitle: true,
     content: source.content,
     created: now,
     updated: now
   };
-  currentDocumentId = newId;
-  saveDocumentsToStorage();
   loadDocument(newId);
+  saveDocumentsToStorage();
   updateDocumentsList();
+  document.getElementById('documents-search').focus();
 }
 
 function downloadCurrentDocument() {
@@ -1161,91 +1163,75 @@ function sanitizeFileName(name, fallback = 'untitled_document') {
 
 function downloadDocument(id) {
   if (!documents[id]) return;
-  
+  if (id === currentDocumentId) flushDraft();
   const doc = documents[id];
-  const markdownContent = convertToMarkdown(doc.content);  
-  const firstLine = markdownContent.split('\n')[0].replace(/^#\s+/, '').trim();
-  const fileName = `${sanitizeFileName(firstLine || doc.title).toLowerCase()}.md`;  
-  const blob = new Blob([markdownContent], {type: 'text/markdown'});
+  const markdownContent = convertToMarkdown(id === currentDocumentId ? editor.innerHTML : doc.content);
+  downloadFile(markdownContent, `${sanitizeFileName(doc.title)}.md`, 'text/markdown;charset=utf-8');
+}
+
+function downloadFile(content, filename, type) {
+  const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = fileName;
+    a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function downloadAllDocuments() {
-  if (typeof JSZip !== 'undefined') {
-    createAndDownloadZip();
-    return;
-  }
-
-  const bundle = Object.values(documents)
-    .map(doc => {
-      const title = doc.title || 'Untitled Document';
-      return `# ${title}\n\n${convertToMarkdown(doc.content)}`;
-    })
-    .join('\n\n---\n\n');
-
-  const blob = new Blob([bundle], {type: 'text/markdown'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'odak-writings.md';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  flushDraft();
+  const writings = Object.values(documents).map(doc => ({
+    ...doc, markdown: convertToMarkdown(doc.id === currentDocumentId ? editor.innerHTML : doc.content)
+  }));
+  downloadFile(JSON.stringify({ format: 'odak-backup', version: 1, writings }, null, 2),
+    `odak-backup-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
 }
 
-function createAndDownloadZip() {
-  const zip = new JSZip();
-  const docs = Object.values(documents);  
-  docs.forEach(doc => {
-    
-    const content = doc.content;
-    
-    const markdown = convertToMarkdown(content);
-    
-    const firstLine = markdown.split('\n')[0].replace(/^#\s+/, '').trim();
-    const fileName = `${sanitizeFileName(firstLine || doc.title)}.md`;
-    
-    
-    zip.file(fileName, markdown);
-  });  
-  zip.generateAsync({type: 'blob'}).then(blob => {
-    
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'odak-writings.zip';
-    document.body.appendChild(a);
-    a.click();
-    
-    
-    setTimeout(() => {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 0);
-  });
+async function restoreBackup(event) {
+  const [file] = event.target.files;
+  event.target.value = '';
+  if (!file) return;
+  const status = document.getElementById('library-feedback');
+  try {
+    const backup = JSON.parse(await file.text());
+    if (backup?.format !== 'odak-backup' || backup.version !== 1 || !Array.isArray(backup.writings) ||
+        !backup.writings.every(doc => doc && typeof doc.title === 'string' && typeof doc.content === 'string')) {
+      throw Error('Not a supported Odak backup.');
+    }
+    if (!flushDraft()) throw Error('Save or download your current draft before restoring.');
+    const now = new Date().toISOString();
+    const validDate = date => Number.isFinite(Date.parse(date)) ? new Date(date).toISOString() : now;
+    const additions = backup.writings.map(doc => ({
+      id: newDocumentId(), title: doc.title, content: cleanWritingHtml(doc.content),
+      customTitle: doc.customTitle !== false, created: validDate(doc.created), updated: validDate(doc.updated)
+    }));
+    additions.forEach(doc => { documents[doc.id] = doc; });
+    if (!saveDocumentsToStorage()) {
+      additions.forEach(doc => { delete documents[doc.id]; });
+      throw Error('Backup could not be saved. Your existing library was not replaced.');
+    }
+    updateDocumentsList();
+    status.textContent = `Restored ${additions.length} writing${additions.length === 1 ? '' : 's'} as copies.`;
+  } catch (error) {
+    status.textContent = error instanceof SyntaxError ? 'Not a supported Odak backup.' : error.message;
+  }
 }
 
 function convertToMarkdown(html) {
-  const temp = document.createElement('div');
-  temp.innerHTML = html;
+  const temp = sanitizeWriting(html);
 
   function processNode(node, context = {}) {
     if (node.nodeType === Node.TEXT_NODE) {
-      return node.textContent;
+      return node.textContent.replace(/\u200B/g, '');
     } else if (node.nodeType === Node.ELEMENT_NODE) {
       const tagName = node.tagName.toLowerCase();
 
       // Create new context for nested ordered lists
       if (tagName === 'ol') {
-        context.olCounter = 1;
+        context = { ...context, olCounter: Number(node.getAttribute('start') || 1) };
       }
 
       const childContent = Array.from(node.childNodes)
@@ -1259,7 +1245,7 @@ function convertToMarkdown(html) {
         case 'h4': return `#### ${childContent}`;
         case 'h5': return `##### ${childContent}`;
         case 'h6': return `###### ${childContent}`;
-        case 'blockquote': return "\n" + `> ${childContent}` + "\n";
+        case 'blockquote': return childContent.split('\n').map(line => `> ${line}`).join('\n');
         case 'strong':
         case 'b': return `**${childContent}**`;
         case 'em':
@@ -1301,7 +1287,7 @@ function convertToMarkdown(html) {
         case 'li':
           const parentList = node.parentElement?.tagName.toLowerCase();
           if (parentList === 'ol') {
-            const number = context.olCounter || 1;
+            const number = context.olCounter ?? 1;
             context.olCounter = number + 1;
             return `${number}. ${childContent}\n`;
           } else {
@@ -1310,7 +1296,12 @@ function convertToMarkdown(html) {
         case 'input':
           return '';
         case 'br':
-          return '';
+          return '\n';
+        case 'pre': {
+          const text = node.textContent;
+          const fence = '`'.repeat(Math.max(3, ...(text.match(/`+/g) || []).map(run => run.length + 1)));
+          return `${fence}${node.getAttribute('data-language') || ''}\n${text}\n${fence}\n`;
+        }
         case 'p':
           return childContent + '\n';
         default:
@@ -1326,7 +1317,9 @@ function convertToMarkdown(html) {
   for (let i = 0; i < children.length; i++) {
     const node = children[i];
     const result = processNode(node);
-    if (result.trim() || (node.nodeType === Node.ELEMENT_NODE && node.tagName.toLowerCase() === 'hr')) {
+    if (node.nodeType === Node.ELEMENT_NODE && ['DIV', 'P'].includes(node.tagName) && !result.trim()) {
+      if (markdown) markdown += '\n';
+    } else if (result.trim()) {
       if (markdown && !markdown.endsWith('\n') && 
           node.nodeType === Node.ELEMENT_NODE &&
           ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'hr', 'div', 'p'].includes(node.tagName.toLowerCase())) {
@@ -1365,43 +1358,117 @@ function getImageLayoutMetadata(wrapper) {
 
 function handleFileUpload(e) {
   const file = e.target.files[0];
+  e.target.value = '';
   if (!file) return;
   
   const reader = new FileReader();
   reader.onload = function(e) {
-    const content = e.target.result;
+    if (!flushDraft()) return;
+    const content = e.target.result.replace(/\r\n?/g, '\n');
     
     
-    const newId = 'doc_' + Date.now();
+    const newId = newDocumentId();
     const fileName = file.name.replace(/\.[^/.]+$/, "");
     
     
     let htmlContent = '';
-    if (file.name.endsWith('.md')) {
+    if (/\.(md|markdown)$/i.test(file.name)) {
       htmlContent = convertMarkdownToHtml(content);
     } else {
       
-      htmlContent = `<p dir="auto">${content.replace(/\n/g, '</p><p dir="auto">')}</p>`;
+      htmlContent = content.split('\n').map(line => `<div dir="auto">${escapeHtml(line) || '<br>'}</div>`).join('');
     }
     
     
     documents[newId] = {
       id: newId,
       title: fileName,
+      customTitle: true,
       content: htmlContent,
       created: new Date().toISOString(),
       updated: new Date().toISOString()
     };
     
     
-    currentDocumentId = newId;
-    saveDocumentsToStorage();
+    if (!saveDocumentsToStorage()) {
+      delete documents[newId];
+      return;
+    }
     loadDocument(newId);
+    editor.focus();
     updateCounter();
   };
   
-  reader.readAsText(file);  
-  fileInput.value = '';
+  reader.onerror = () => showSaveStatus('Could not read the selected file');
+  reader.readAsText(file);
+}
+
+const WRITING_TAGS = new Set('DIV P BR H1 H2 H3 H4 H5 H6 BLOCKQUOTE STRONG B EM I U CODE PRE A IMG HR UL OL LI INPUT SPAN'.split(' '));
+const DISCARDED_TAGS = new Set('SCRIPT STYLE TEMPLATE IFRAME OBJECT SVG MATH FORM EMBED'.split(' '));
+
+function sanitizeWriting(html) {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  function clean(container) {
+    for (const node of [...container.childNodes]) {
+      if (node.nodeType === Node.TEXT_NODE) continue;
+      if (node.nodeType !== Node.ELEMENT_NODE || DISCARDED_TAGS.has(node.tagName) ||
+          node.classList.contains('imglib-handle') || node.classList.contains('imglib-delete')) {
+        node.remove();
+        continue;
+      }
+      clean(node);
+      const tag = node.tagName;
+      if (!WRITING_TAGS.has(tag)) {
+        node.replaceWith(...node.childNodes);
+        continue;
+      }
+      if (tag === 'INPUT' && node.getAttribute('type')?.toLowerCase() !== 'checkbox') {
+        node.remove();
+        continue;
+      }
+      const attributes = {};
+      if (['auto', 'ltr', 'rtl'].includes(node.dir)) attributes.dir = node.dir;
+      if (tag === 'A') attributes.href = sanitizeUrl(node.getAttribute('href'));
+      if (tag === 'INPUT') {
+        attributes.type = 'checkbox';
+        if (node.hasAttribute('checked')) attributes.checked = '';
+      }
+      if (tag === 'OL' && /^-?\d+$/.test(node.getAttribute('start'))) attributes.start = node.getAttribute('start');
+      if (tag === 'PRE' && /^[\w+-]+$/.test(node.getAttribute('data-language') || '')) {
+        attributes['data-language'] = node.getAttribute('data-language');
+      }
+      const wrapper = tag === 'DIV' && node.classList.contains('imglib-wrapper');
+      if (wrapper) {
+        attributes.class = 'imglib-wrapper';
+        attributes.contenteditable = 'false';
+      }
+      if (tag === 'IMG') {
+        const src = sanitizeUrl(node.getAttribute('src'), true);
+        if (src && src !== '#') attributes.src = src;
+        attributes.alt = node.getAttribute('alt') || '';
+        if (node.hasAttribute('data-draggable')) attributes['data-draggable'] = '';
+        attributes.referrerpolicy = 'no-referrer';
+      }
+      if (wrapper || tag === 'IMG') {
+        const fields = { x: 'left', y: 'top', width: 'width', height: 'height' };
+        for (const [key, property] of Object.entries(fields)) {
+          const value = Number.parseFloat(node.getAttribute(`data-odak-${key}`) || (wrapper ? node.style[property] : ''));
+          if (Number.isFinite(value)) attributes[`data-odak-${key}`] = Math.round(value);
+        }
+      }
+      for (const attr of [...node.attributes]) node.removeAttribute(attr.name);
+      for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+    }
+  }
+  clean(template.content);
+  return template.content;
+}
+
+function cleanWritingHtml(html) {
+  const template = document.createElement('template');
+  template.content.append(sanitizeWriting(html));
+  return template.innerHTML;
 }
 
 function escapeHtml(value) {
@@ -1442,7 +1509,7 @@ function handleEditorLinkClick(e) {
   e.preventDefault();
   e.stopPropagation();
 
-  if (e.button !== 0 || (!e.ctrlKey && !e.metaKey)) return;
+  if (e.button !== 0 || (e.detail !== 0 && !e.ctrlKey && !e.metaKey)) return;
 
   const href = sanitizeUrl(link.getAttribute('href') || '');
   if (!href || href === '#') return;
@@ -1452,27 +1519,21 @@ function handleEditorLinkClick(e) {
 
 function renderInlineMarkdown(markdown) {
   const tokens = [];
-  let escaped = escapeHtml(markdown)
+  const stash = html => `\u0000${tokens.push(html) - 1}\u0000`;
+  let escaped = markdown.replace(/\u0000/g, '\uFFFD')
+    .replace(/`([^`]+)`/g, (match, code) => stash(`<code>${escapeHtml(code)}</code>`))
     .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (match, alt, src) => {
-      const token = `\u0000${tokens.length}\u0000`;
-      tokens.push(renderImageMarkdown(alt, src));
-      return token;
+      return stash(renderImageMarkdown(alt, src));
     })
     .replace(/(?<!!)\[([^\]]+)\]\(([^)\s]+)\)/g, (match, text, href) => {
-      const token = `\u0000${tokens.length}\u0000`;
-      tokens.push(`<a href="${escapeHtml(sanitizeUrl(href))}" target="_blank" rel="noopener noreferrer">${text}</a>`);
-      return token;
-    })
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
+      return stash(`<a href="${escapeHtml(sanitizeUrl(href))}">${escapeHtml(text)}</a>`);
+    });
+  escaped = escapeHtml(escaped)
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>')
     .replace(/__(.+?)__/g, '<u>$1</u>');
 
-  tokens.forEach((html, index) => {
-    escaped = escaped.replace(`\u0000${index}\u0000`, html);
-  });
-
-  return escaped;
+  return escaped.replace(/\u0000(\d+)\u0000/g, (_, index) => tokens[index]);
 }
 
 function parseOdakImageMetadata(line) {
@@ -1514,23 +1575,41 @@ function renderImageMarkdown(alt, src, metadata = null) {
 
 function convertMarkdownToHtml(markdown) {
   // Split the markdown into lines
-  const lines = markdown.split('\n');
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
   let html = '';
   let inList = false;
   let listType = '';
   let listItems = [];
+  let listStart = 1;
+
+  function flushList() {
+    if (!inList) return;
+    const start = listType === 'ol' && listStart !== 1 ? ` start="${listStart}"` : '';
+    html += `<${listType} dir="auto"${start}>${listItems.join('')}</${listType}>`;
+    inList = false;
+    listItems = [];
+  }
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
+    const ordered = line.match(/^(\d+)\.\s+(.+)$/);
+    const unordered = /^-\s+(?!\[[ xX]\](?:\s|$))/.test(line);
+    const nextList = ordered ? 'ol' : unordered ? 'ul' : '';
+    if (inList && listType !== nextList) flushList();
+    const fence = line.match(/^(`{3,}|~{3,})([\w+-]*)\s*$/);
+    if (fence) {
+      const closing = new RegExp(`^${fence[1][0]}{${fence[1].length},}$`);
+      const end = lines.findIndex((part, index) => index > i && closing.test(part.trim()));
+      if (end !== -1) {
+        html += `<pre dir="auto" data-language="${fence[2]}">${escapeHtml(lines.slice(i + 1, end).join('\n'))}</pre>`;
+        i = end;
+        continue;
+      }
+    }
     
     // Skip empty lines
     if (!line) {
-      if (inList) {
-        html += `<${listType} dir="auto">${listItems.join('')}</${listType}>`;
-        inList = false;
-        listItems = [];
-      }
-      html += '<div dir="auto"></div>';
+      html += '<div dir="auto"><br></div>';
       continue;
     }
 
@@ -1544,8 +1623,9 @@ function convertMarkdownToHtml(markdown) {
 
     // Blockquotes
     if (line.startsWith('>')) {
-      const content = line.replace(/^>\s*/, '');
-      html += `<blockquote dir="auto">${renderInlineMarkdown(content)}</blockquote>`;
+      const content = [line.replace(/^>\s?/, '')];
+      while (lines[i + 1]?.trim().startsWith('>')) content.push(lines[++i].trim().replace(/^>\s?/, ''));
+      html += `<blockquote dir="auto">${content.map(renderInlineMarkdown).join('<br>')}</blockquote>`;
       continue;
     }
 
@@ -1570,38 +1650,30 @@ function convertMarkdownToHtml(markdown) {
     }
 
     // Checkboxes
-    if (/^-\s\[( |x)\]\s(.*)/.test(line)) {
-      const match = line.match(/^-\s\[( |x)\]\s(.*)/);
-      const checked = match[1] === 'x';
-      const content = match[2];
+    const check = line.match(/^-\s\[([ xX])\](?:\s+(.*))?$/);
+    if (check) {
+      const checked = check[1].toLowerCase() === 'x';
+      const content = check[2] || '\u200B';
       html += `<div dir="auto"><input type="checkbox" ${checked ? 'checked' : ''} dir="auto"> ${renderInlineMarkdown(content)}</div>`;
       continue;
     }
     
     // Ordered Lists
-    if (line.match(/^\d+\.\s/)) {
-      if (!inList || listType !== 'ol') {
-        if (inList) {
-          html += `<${listType} dir="auto">${listItems.join('')}</${listType}>`;
-        }
+    if (ordered) {
+      if (!inList) {
         inList = true;
         listType = 'ol';
-        listItems = [];
+        listStart = Number(ordered[1]);
       }
-      const content = line.replace(/^\d+\.\s*/, '');
-      listItems.push(`<li dir="auto">${renderInlineMarkdown(content)}</li>`);
+      listItems.push(`<li dir="auto">${renderInlineMarkdown(ordered[2])}</li>`);
       continue;
     }
 
     // Unordered Lists
-    if (line.startsWith('- ')) {
-      if (!inList || listType !== 'ul') {
-        if (inList) {
-          html += `<${listType} dir="auto">${listItems.join('')}</${listType}>`;
-        }
+    if (unordered) {
+      if (!inList) {
         inList = true;
         listType = 'ul';
-        listItems = [];
       }
       const content = line.replace(/^-\s*/, '');
       listItems.push(`<li dir="auto">${renderInlineMarkdown(content)}</li>`);
@@ -1615,45 +1687,33 @@ function convertMarkdownToHtml(markdown) {
   }
 
   // Close any open list
-  if (inList) {
-    html += `<${listType} dir="auto">${listItems.join('')}</${listType}>`;
-  }
+  flushList();
 
   return html;
 }
 
 function updateCounter() {
-  // Get all text nodes recursively from the editor
-  const textNodes = [];
-  const walk = document.createTreeWalker(
-    editor,
-    NodeFilter.SHOW_TEXT,
-    null,
-    false
-  );
-  
-  let node;
-  while (node = walk.nextNode()) {
-    textNodes.push(node.textContent);
+  const text = editor.innerText.replace(/[\u200B×]/g, '').trim();
+  const wordCount = wordSegmenter
+    ? [...wordSegmenter.segment(text)].filter(segment => segment.isWordLike).length
+    : text.split(/\s+/).filter(Boolean).length;
+  counter.textContent = `${wordCount} word${wordCount === 1 ? '' : 's'}`;
+}
+
+const wordSegmenter = typeof Intl.Segmenter === 'function'
+  ? new Intl.Segmenter(undefined, { granularity: 'word' }) : null;
+
+function labelCheckboxes() {
+  for (const checkbox of editor.querySelectorAll('input[type="checkbox"]')) {
+    checkbox.setAttribute('aria-label', checkbox.parentElement.textContent.replace(/\u200B/g, '').trim() || 'Checklist item');
   }
-  
-  // Join all text nodes and normalize whitespace
-  const text = textNodes.join(' ').replace(/\s+/g, ' ').trim();
-  const words = text.split(/\s+/).filter(word => word.length > 0);
-  const wordCount = text === '' ? 0 : words.length;
-  
-  counter.textContent = `${wordCount} words`;
 }
 
 function handleShortcuts(e) {
-  
-  if (e.ctrlKey && e.key === 's') {
+  if (e.isComposing || e.altKey || e.defaultPrevented) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
     e.preventDefault();
     saveCurrentDocument();
-  }  
-  if (e.ctrlKey && e.key === 'n') {
-    e.preventDefault();
-    createNewDocument();
   }
 }
 
@@ -1711,7 +1771,7 @@ function makePopupDraggable(popupId) {
   let offsetX = 0, offsetY = 0, startX = 0, startY = 0, isDragging = false;
 
   header.addEventListener('mousedown', function(e) {
-    if (e.button !== 0) return; // Only left mouse button
+    if (e.button !== 0 || e.target.closest('button')) return;
     isDragging = true;
     startX = e.clientX;
     startY = e.clientY;
@@ -1740,57 +1800,74 @@ function makePopupDraggable(popupId) {
 }
 
 function toggleToolbarAndStatusbar(mode = 'hide') {
-  if (window.innerWidth <= 768) {
-    if (mode == 'hide') {
-      toolbar.style.opacity = 0;
-      statusBar.style.opacity = 1;
-      statusBar.style.bottom = 'env(safe-area-inset-bottom, 0px)';
-    } else {
-      toolbar.style.opacity = 1;
-      statusBar.style.opacity = 1;
-      statusBar.style.bottom = 'env(safe-area-inset-bottom, 0px)';
-    }
-  } else {
-    if (mode == 'hide') {
-      toolbar.style.opacity = 0;
-      toolbar.style.left = '-100px';
-      statusBar.style.opacity = 0;
-      statusBar.style.bottom = '-100px';
-    } else {
-      toolbar.style.opacity = 1;
-      toolbar.style.left = '5px';
-      statusBar.style.opacity = 1;
-      statusBar.style.bottom = '0';
-    }
-  }
+  const hide = mode === 'hide' && !activeDialog && document.activeElement === editor &&
+    matchMedia('(min-width: 769px) and (hover: hover) and (pointer: fine)').matches;
+  document.body.classList.toggle('focus-writing', hide);
+  toolbar.inert = Boolean(activeDialog) || hide;
+  statusBar.inert = Boolean(activeDialog);
 }
 
 function toggleInfo() {
-  const infoPopup = document.getElementById('info-popup');
-  infoPopup.classList.toggle('hidden');
+  toggleDialog(document.getElementById('info-popup'));
 }
 
 function showInfoPopup() {
-  const infoPopup = document.getElementById('info-popup');
-  infoPopup.classList.remove('hidden');
+  openDialog(document.getElementById('info-popup'));
 }
 
 function closeInfoPopup() {
-  const infoPopup = document.getElementById('info-popup');
-  infoPopup.classList.add('hidden');
+  closeDialog(document.getElementById('info-popup'));
 }
 
-function closeOpenPopups() {
-  [listPopup, settingsPopup, document.getElementById('info-popup')].forEach(popup => {
-    if (popup) {
-      popup.classList.add('hidden');
+function openDialog(dialog) {
+  if (activeDialog) closeDialog(activeDialog, false);
+  const focused = document.activeElement;
+  dialogTrigger = focused === document.body ? editor : focused;
+  closeVolume();
+  activeDialog = dialog;
+  dialog.classList.remove('hidden');
+  ['top', 'left', 'transform'].forEach(key => { dialog.style[key] = ''; });
+  for (const child of dialog.parentElement.children) child.inert = child !== dialog;
+  toggleToolbarAndStatusbar('show');
+  (dialog.querySelector('input[type="search"]') || dialog.querySelector('.close-popup')).focus();
+}
+
+function closeDialog(dialog, restoreFocus = true) {
+  if (activeDialog !== dialog) return;
+  if (dialog.id === 'info-popup') setPreference('odak_has_seen_info', 'true');
+  activeDialog = null;
+  dialog.classList.add('hidden');
+  for (const child of dialog.parentElement.children) child.inert = false;
+  if (restoreFocus) dialogTrigger?.focus();
+  dialogTrigger = null;
+}
+
+function toggleDialog(dialog) {
+  if (activeDialog === dialog) closeDialog(dialog);
+  else openDialog(dialog);
+}
+
+function handleDialogKeys(event) {
+  if (event.key === 'Escape') {
+    if (activeDialog) closeDialog(activeDialog);
+    else closeVolume(true);
+  } else if (event.key === 'Tab' && activeDialog) {
+    const focusable = [...activeDialog.querySelectorAll('button, input, select, a[href], summary')]
+      .filter(element => !element.disabled && element.tabIndex >= 0 && element.getClientRects().length);
+    if (!focusable.length) return;
+    const edge = event.shiftKey ? focusable[0] : focusable.at(-1);
+    if (document.activeElement === edge || !activeDialog.contains(document.activeElement)) {
+      event.preventDefault();
+      (event.shiftKey ? focusable.at(-1) : focusable[0]).focus();
     }
-  });
+  } else if (event.key === 'Tab') {
+    toggleToolbarAndStatusbar('show');
+  }
 }
 
 function handleLetsGo() {
-  localStorage.setItem('odak_has_seen_info', 'true');
   closeInfoPopup();
+  editor.focus();
 }
 
 function syncCheckboxAttribute(e) {
@@ -1803,16 +1880,14 @@ function syncCheckboxAttribute(e) {
   }
 }
 
-document.addEventListener('change', syncCheckboxAttribute);
-document.addEventListener('click', syncCheckboxAttribute);
-
 document.addEventListener('DOMContentLoaded', () => {
   init();
 
-  editor.addEventListener('click', () => {
-    saveCurrentDocumentContent();
-  });
   editor.addEventListener('click', handleEditorLinkClick);
+  editor.addEventListener('focusout', () => toggleToolbarAndStatusbar('show'));
+  editor.addEventListener('change', event => {
+    if (event.target.matches('input[type="checkbox"]')) markDraftChanged(event);
+  });
   
   // Add event listener for keyboard shortcuts
   document.addEventListener('keydown', handleShortcuts);
@@ -1834,30 +1909,32 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('save-btn').addEventListener('click', saveCurrentDocument);
   
   // Add event listeners for popup close buttons
-  document.getElementById('close-list').addEventListener('click', () => listPopup.classList.add('hidden'));
-  document.getElementById('close-settings').addEventListener('click', () => settingsPopup.classList.add('hidden'));
+  document.getElementById('close-list').addEventListener('click', () => closeDialog(listPopup));
+  document.getElementById('close-settings').addEventListener('click', () => closeDialog(settingsPopup));
   
   // Add event listeners for file inputs
   fileInput.addEventListener('change', handleFileUpload);
   document.getElementById('bg-file-input').addEventListener('change', handleBackgroundUpload);
+  document.getElementById('backup-file-input').addEventListener('change', restoreBackup);
   
   // Add event listeners for settings controls
   document.getElementById('font-family-select').addEventListener('change', (e) => {
     fontFamily = e.target.value;
-    localStorage.setItem('odak_font_family', fontFamily);
+    setPreference('odak_font_family', fontFamily);
     applySettings();
   });
   
   document.getElementById('font-size-slider').addEventListener('input', (e) => {
     fontSize = parseInt(e.target.value);
-    localStorage.setItem('odak_font_size', fontSize);
+    setPreference('odak_font_size', fontSize);
     updateFontSizeLabel();
     applySettings();
   });
   
   document.getElementById('editor-width-input').addEventListener('change', (e) => {
-    editorWidth = parseInt(e.target.value);
-    localStorage.setItem('odak_editor_width', editorWidth);
+    editorWidth = clampSetting(e.target.value, 400, 1600, 830);
+    e.target.value = editorWidth;
+    setPreference('odak_editor_width', editorWidth);
     applySettings();
   });
   
@@ -1869,17 +1946,30 @@ document.addEventListener('DOMContentLoaded', () => {
   
   document.getElementById('volume-slider').addEventListener('input', (e) => {
     soundVolume = parseInt(e.target.value) / 100;
+    if (soundVolume > 0) {
+      lastAudibleVolume = soundVolume;
+      setPreference('odak_last_audible_volume', soundVolume);
+    }
     document.getElementById('volume-value').textContent = e.target.value + '%';
     updateSoundButton();
     Object.values(mediaSounds).flat().forEach(sound => {
       sound.volume = soundVolume / 3;
     });
-    localStorage.setItem('odak_sound_volume', soundVolume);
+    setPreference('odak_sound_volume', soundVolume);
+  });
+  document.getElementById('mute-btn').addEventListener('click', () => {
+    const slider = document.getElementById('volume-slider');
+    slider.value = soundEnabled ? 0 : Math.round(lastAudibleVolume * 100);
+    slider.dispatchEvent(new Event('input'));
+  });
+  document.getElementById('spellcheck-setting').addEventListener('change', event => {
+    editor.spellcheck = event.target.checked;
+    setPreference('odak_spellcheck', editor.spellcheck);
   });
 
-  document.getElementById('close-volume').addEventListener('click', () => {
-    document.getElementById('volume-popup').classList.add('hidden');
-  });
+  document.getElementById('close-volume').addEventListener('click', () => closeVolume(true));
+  document.addEventListener('fullscreenchange', updateFullscreenButtonVisibility);
+  document.addEventListener('webkitfullscreenchange', updateFullscreenButtonVisibility);
 
   window.addEventListener('resize', () => {
     updateFullscreenButtonVisibility();
@@ -1894,6 +1984,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   document.addEventListener('pointerdown', () => {
+    if (!soundEnabled) return;
     if (shouldUseMediaSounds()) {
       ensureMediaSoundsReady();
     } else {
@@ -1907,7 +1998,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
   document.getElementById('default-bg').addEventListener('click', () => {
     useCustomBg = false;
-    localStorage.setItem('odak_use_custom_bg', 'false');
+    setPreference('odak_use_custom_bg', 'false');
     updateBackgroundSelection();
     applyBackground();
   });
@@ -1915,13 +2006,16 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('custom-bg').addEventListener('click', () => {
     if (customBackground) {
       useCustomBg = true;
-      localStorage.setItem('odak_use_custom_bg', 'true');
+      setPreference('odak_use_custom_bg', 'true');
       updateBackgroundSelection();
       applyBackground();
     }
   });
 
   document.getElementById('download-all-btn').addEventListener('click', downloadAllDocuments);
+  document.getElementById('restore-backup-btn').addEventListener('click', () => {
+    document.getElementById('backup-file-input').click();
+  });
 
   document.getElementById('documents-search').addEventListener('input', (e) => {
     documentSearchQuery = e.target.value;
@@ -1933,17 +2027,13 @@ document.addEventListener('DOMContentLoaded', () => {
     updateDocumentsList();
   });
 
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      closeOpenPopups();
-    }
-  });
+  document.addEventListener('keydown', handleDialogKeys);
 
   document.addEventListener('click', (e) => {
     const volumePopup = document.getElementById('volume-popup');
     const soundBtn = document.getElementById('sound-btn');
     if (!volumePopup.contains(e.target) && !soundBtn.contains(e.target)) {
-      volumePopup.classList.add('hidden');
+      closeVolume();
     }
   });
 
@@ -1959,6 +2049,11 @@ document.addEventListener('DOMContentLoaded', () => {
   infoBtn.addEventListener('click', toggleInfo);
   closeInfoBtn.addEventListener('click', closeInfoPopup);
   letsGoBtn.addEventListener('click', handleLetsGo);
+  document.getElementById('open-example-btn').addEventListener('click', () => {
+    if (!flushDraft() || libraryLocked) return;
+    ensureExampleDocument(true);
+    if (loadDocument(EXAMPLE_DOCUMENT_ID)) handleLetsGo();
+  });
 
 
 

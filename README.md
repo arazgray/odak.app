@@ -5,7 +5,7 @@
 
 <p align="center">
   <strong>Distraction-free Markdown writing app, fully offline and local-first.</strong><br>
-  <strong>Version 3.0</strong><br>
+  <strong>Version 3.1</strong><br>
   <a href="https://odak.app">Try it now!</a> | <a href="https://github.com/arazgray/markdown-editor">Powered by WYSIWYG Markdown Editor</a>
 </p>
 
@@ -32,7 +32,7 @@ No accounts, no ads, no cloud, and no distractions. Everything is stored locally
 ## Features
 
 - **Distraction-Free UI** – Auto-hides toolbars as you type, with optional nostalgic typewriter sounds  
-- **Live Markdown Support** – Create, edit, import, and export `.md` documents with safer v3.0 rendering  
+- **Live Markdown Support** – Create, edit, import, and export Markdown documents
 - **Local-First Storage** – All content is saved on your device; no internet or servers required  
 - **Writing Library** – Search, sort, duplicate, rename, delete, and bulk-export your local writings  
 - **Themes** – Switch between light, dark, and custom "Odak" theme for optimal writing comfort  
@@ -44,11 +44,13 @@ No accounts, no ads, no cloud, and no distractions. Everything is stored locally
 
 ---
 
-## Version 3.0
+## Version 3.1
 
-Odak 3.0 tightens the writing core: safer Markdown import/export, more reliable autosave, sturdier local storage recovery, offline-friendly bulk export, refreshed PWA cache metadata, and a cleaner local-first footprint.
+Odak 3.1 saves pending edits before switching or exporting, preserves custom titles, and reports storage failures without discarding the open draft. It improves Markdown round-trips, mobile controls, keyboard navigation and offline updates.
 
-Recent refinements add a more capable local writing library, keyboard-friendly popup behavior, improved mobile layouts, clearer accessible labels, shared logo assets instead of repeated inline markup, and Ctrl/Cmd + left click for opening links from the editor.
+Use **Writings → Download backup** to save a local JSON copy of all writings. **Restore backup** adds the recovered writings as copies without replacing existing ones. Use the individual download button for a portable `.md` file. Clearing browser data can erase the local library; remote images still require a connection.
+
+Odak supports headings, bold, italic, its own `__underline__` convention, inline code, fenced code on import/export, lists, checkboxes, quotes, links, images and horizontal rules. It is not a full CommonMark editor. Ctrl/Cmd + click opens an editor link.
 
 Dragged images export as normal Markdown followed by optional Odak metadata comments, so other Markdown readers can ignore the layout data while Odak can restore it:
 
@@ -68,6 +70,8 @@ Dragged images export as normal Markdown followed by optional Odak metadata comm
 ## Contributing
 
 Pull requests and feedback are always welcome. Whether it's a typo fix or a major feature idea, your input is appreciated.
+
+To run the regression suite, serve the repository with `python3 -m http.server 8765 --bind 127.0.0.1`, start Chrome with `--remote-debugging-port=9237` and a **fresh, dedicated** `--user-data-dir`, then run `node tests/browser-smoke.mjs` (Node 22+). The suite writes sample documents into that test profile and exercises editing, backups, mobile layout and offline reload.
 
 Support development:
 

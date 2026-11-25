@@ -1,38 +1,38 @@
 <!DOCTYPE html>
 <!-- 
   Odak.app is a clean, minimalist, and privacy-respecting writing app with live Markdown rendering—built to keep you in the flow. No accounts, no ads, no cloud, and no distractions. Everything is stored locally on your device.
-  v=3.0-20260626-V
+  v=3.1
   Author: Araz Gray @arazgray
   Email: contact@odak.app
 -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Odak.app - Writing Tool</title>
-  <link rel="manifest" href="manifest.json?v=3.0-20260626-V">
-  <link rel="icon" href="./assets/images/odak-icon.png?v=3.0-20260626-V" type="image/png">
-  <link rel="icon" href="./assets/images/odak-icon-192.png?v=3.0-20260626-V" sizes="192x192" type="image/png">
-  <link rel="apple-touch-icon" href="./apple-icon.png?v=3.0-20260626-V" sizes="180x180">
-  <link rel="mask-icon" href="./assets/images/odak-icon.png?v=3.0-20260626-V" color="#000000">
+  <link rel="manifest" href="manifest.json?v=3.1">
+  <link rel="icon" href="./assets/images/odak-icon.png?v=3.1" type="image/png">
+  <link rel="icon" href="./assets/images/odak-icon-192.png?v=3.1" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="./apple-icon.png?v=3.1" sizes="180x180">
+  <link rel="mask-icon" href="./assets/images/odak.svg?v=3.1" color="#000000">
   <meta name="msapplication-TileColor" content="#000000">
-  <meta name="msapplication-TileImage" content="./assets/images/odak-icon.png?v=3.0-20260626-V">
-  <meta name="theme-color" content="#000000">
-  <link rel="stylesheet" href="./assets/vendor/bootstrap.min.css?v=3.0-20260626-V">
-  <link rel="stylesheet" href="./assets/vendor/font-awesome.min.css?v=3.0-20260626-V">
-  <link rel="stylesheet" href="./assets/styles/theme-light.css?v=3.0-20260626-V">
-  <link rel="stylesheet" href="./assets/styles/style.css?v=3.0-20260626-V">
-  <link rel="stylesheet" href="./assets/styles/responsive.css?v=3.0-20260626-V">
+  <meta name="msapplication-TileImage" content="./assets/images/odak-icon.png?v=3.1">
+  <meta name="theme-color" content="#f8f5f0">
+  <link rel="stylesheet" href="./assets/vendor/bootstrap.min.css?v=3.1">
+  <link rel="stylesheet" href="./assets/vendor/font-awesome.min.css?v=3.1">
+  <link rel="stylesheet" href="./assets/styles/theme-light.css?v=3.1">
+  <link rel="stylesheet" href="./assets/styles/style.css?v=3.1">
+  <link rel="stylesheet" href="./assets/styles/responsive.css?v=3.1">
 </head>
 <body>
   <div id="app">
 
     <div id="toolbar" role="toolbar" aria-label="Writing tools">
       <button id="fullscreen-btn" title="Toggle Fullscreen" aria-label="Toggle fullscreen"><i class="fas fa-expand"></i></button>
-      <button id="list-btn" title="Your Writings" aria-label="Your writings"><i class="fas fa-list"></i></button>
-      <button id="sound-btn" aria-label="Volume control"><i class="fas fa-volume-up"></i></button>
-      <button id="settings-btn" title="Settings" aria-label="Settings"><i class="fas fa-cog"></i></button>
-      <button id="info-btn" title="Info" aria-label="Info"><i class="fas fa-info-circle"></i></button>
+      <button id="list-btn" title="Your Writings" aria-label="Your writings" aria-haspopup="dialog" aria-controls="list-popup"><i class="fas fa-list"></i></button>
+      <button id="sound-btn" aria-label="Volume control" aria-expanded="false" aria-controls="volume-popup"><i class="fas fa-volume-mute"></i></button>
+      <button id="settings-btn" title="Settings" aria-label="Settings" aria-haspopup="dialog" aria-controls="settings-popup"><i class="fas fa-cog"></i></button>
+      <button id="info-btn" title="Info" aria-label="Info" aria-haspopup="dialog" aria-controls="info-popup"><i class="fas fa-info-circle"></i></button>
       <button id="load-btn" title="Load MD File" aria-label="Load Markdown file"><i class="fas fa-file-upload"></i></button>
       <button id="download-btn" title="Download as MD" aria-label="Download as Markdown"><i class="fas fa-download"></i></button>
     </div>
@@ -40,8 +40,9 @@
     <div id="volume-popup" class="popup hidden">
       <button id="close-volume" class="close-popup volume-close" aria-label="Close volume control"><i class="fas fa-times"></i></button>
       <div class="volume-control">
-        <input type="range" id="volume-slider" min="0" max="100" value="50" class="volume-slider">
-        <div class="volume-label">Volume: <span id="volume-value">50%</span></div>
+        <input type="range" id="volume-slider" min="0" max="100" value="0" class="volume-slider">
+        <label for="volume-slider" class="volume-label">Volume: <span id="volume-value">0%</span></label>
+        <button id="mute-btn" type="button" class="action-btn">Unmute</button>
       </div>
     </div>
 
@@ -61,9 +62,13 @@
           <option value="created-desc">Recently created</option>
           <option value="title-asc">Title A-Z</option>
         </select>
-        <button id="download-all-btn" class="btn action-btn"><i class="fas fa-file-download"></i> Download All</button>
+        <div class="library-backup-actions">
+          <button id="download-all-btn" class="btn action-btn">Download backup</button>
+          <button id="restore-backup-btn" class="btn action-btn">Restore backup</button>
+        </div>
       </div>
       <div id="documents-summary" class="library-summary"></div>
+      <div id="library-feedback" class="library-summary" role="status"></div>
       <div id="documents-list"></div>
     </div>
     
@@ -73,6 +78,10 @@
         <button id="close-settings" class="close-popup" aria-label="Close settings"><i class="fas fa-times"></i></button>
       </div>
       <div id="settings-content">
+        <div class="settings-section">
+          <label><input type="checkbox" id="spellcheck-setting"> Check spelling while writing</label>
+        </div>
+
         <div class="settings-section">
           <div class="settings-row">
             <label for="font-family-select">Font Family</label>
@@ -119,12 +128,12 @@
           <div class="settings-row">
             <label>Background</label>
             <div class="background-options">
-              <div class="background-option" id="default-bg">
+              <button type="button" class="background-option" id="default-bg">
                 <span>Default</span>
-              </div>
-              <div class="background-option hidden" id="custom-bg">
+              </button>
+              <button type="button" class="background-option hidden" id="custom-bg">
                 <span>Custom</span>
-              </div>
+              </button>
               <button id="upload-bg-btn" class="btn btn-sm action-btn">
                 <i class="fas fa-upload"></i> Upload Custom Background
               </button>
@@ -136,13 +145,14 @@
 
     <div id="info-popup" class="popup hidden" role="dialog" aria-modal="true" aria-labelledby="info-title">
       <div class="popup-header">
-        <h3 id="info-title"><img src="./assets/images/odak.svg?v=3.0-20260626-V" alt="" class="popup-logo"> Welcome to Odak.app</h3>
+        <h3 id="info-title"><img src="./assets/images/odak.svg?v=3.1" alt="" class="popup-logo"> Welcome to Odak.app</h3>
         <button id="close-info" class="close-popup" aria-label="Close info"><i class="fas fa-times"></i></button>
       </div>
       <div id="info-content" style="padding: 20px; overflow-y: auto; max-height: 60vh;">
         <div class="info-section">
           <p><a href="https://odak.app" class="main-link">Odak.app</a> is a clean, minimalist, and privacy-respecting writing app with live Markdown rendering—built to keep you in the flow.<br> 
             No accounts, no ads, no cloud, and no distractions. Everything is stored locally on your device.</p>
+          <p>Writings live in this browser. Use Writings → Download backup before clearing browser data or moving to another device. Remote images may require a connection.</p>
           <p>Have something to say? <a href="mailto:contact@odak.app" target="_blank" class="main-link">Contact</a>.</p>
         </div>
         <div id="manual-content">
@@ -183,6 +193,7 @@
         </div>
         <div class="info-section text-center mt-4">
           <button id="lets-go-btn" class="btn action-btn">Let's Write</button>
+          <button id="open-example-btn" class="btn action-btn">Open example</button>
         </div>
       </div>
     </div>
@@ -190,26 +201,28 @@
     <div id="status-bar">
       <div class="status-left">
         <a href="https://odak.app" class="logo-link">
-          <img src="./assets/images/odak.svg?v=3.0-20260626-V" alt="" class="status-logo">
+          <img src="./assets/images/odak.svg?v=3.1" alt="" class="status-logo">
           <span><span class="title">Odak.app</span><small class="author">Reimagined by Araz Gray</small></span>
         </a>
-        <span class="status-link">v3.0</span>
+        <span class="status-link">v3.1</span>
         <a href="https://github.com/arazgray/odak.app" target="_blank" class="status-link">Github</a>
         <a href="mailto:contact@odak.app" target="_blank" class="status-link">Contact</a>
         <a href="https://buymeacoffee.com/arazgray" target="_blank" class="status-link">Donate</a>
       </div>
       <div class="status-right">
+        <span id="save-status" role="status"></span>
         <div id="counter"></div>
         <button id="new-btn" class="action-btn">New</button>
         <button id="save-btn" class="action-btn">Save</button>
       </div>
     </div>
   </div>
-  <input type="file" id="file-input" accept=".md,.txt" style="display: none;">
+  <input type="file" id="file-input" accept=".md,.markdown,.txt" hidden>
+  <input type="file" id="backup-file-input" accept=".json,application/json" hidden>
   <input type="file" id="bg-file-input" accept="image/*" style="display: none;">
-  <script src="./assets/vendor/bootstrap.bundle.min.js?v=3.0-20260626-V"></script>
-  <script src="./assets/scripts/draggable-image.js?v=3.0-20260626-V"></script>
-  <script src="./assets/scripts/wysiwyg-markdown-editor.js?v=3.0-20260626-V"></script>
-  <script src="./assets/scripts/script.js?v=3.0-20260626-V"></script>
+  <script src="./assets/vendor/bootstrap.bundle.min.js?v=3.1"></script>
+  <script src="./assets/scripts/draggable-image.js?v=3.1"></script>
+  <script src="./assets/scripts/wysiwyg-markdown-editor.js?v=3.1"></script>
+  <script src="./assets/scripts/script.js?v=3.1"></script>
 </body>
 </html>

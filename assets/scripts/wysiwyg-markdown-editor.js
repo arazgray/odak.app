@@ -26,8 +26,19 @@ class MarkdownEditor {
             this.handleInput(e);
         });
         this.editor.addEventListener('keydown', (e) => {
+            if (e.isComposing || e.keyCode === 229 || e.defaultPrevented ||
+                e.target !== this.editor || (e.key !== 'Enter' && e.key !== 'Backspace')) return;
+            const before = this.editor.innerHTML;
             this.handleKeyDown(e);
+            if (this.editor.innerHTML !== before) this.editor.dispatchEvent(new Event('odak-change'));
         });
+        this.editor.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const text = e.clipboardData?.getData('text/plain');
+            if (text) document.execCommand('insertText', false, text);
+        });
+        this.editor.addEventListener('dragover', e => e.preventDefault());
+        this.editor.addEventListener('drop', e => e.preventDefault());
         this.editor.addEventListener('keyup', (e) => this.handleKeyUp(e));
     }
 
@@ -60,8 +71,12 @@ class MarkdownEditor {
     }
 
     handleInput(e) {
-        if (this.isProcessing) return;
+        if (this.isProcessing || e.isComposing || e.target !== this.editor ||
+            ['historyUndo', 'historyRedo', 'insertFromPaste'].includes(e.inputType)) return;
 
+        for (const block of this.editor.children) {
+            if (/^(DIV|P|H[1-6]|BLOCKQUOTE|UL|OL)$/.test(block.tagName) && !block.hasAttribute('dir')) block.dir = 'auto';
+        }
         const selection = window.getSelection();
         if (selection.rangeCount === 0) return;
 
@@ -94,11 +109,20 @@ class MarkdownEditor {
         if (e.key === 'Backspace') {
             this.handleBackspace(e);
         } else if (e.key === 'Enter') {
-            e.preventDefault();
             const selection = window.getSelection();
             if (selection.rangeCount === 0) return;
             
             const range = selection.getRangeAt(0);
+            if (!this.editor.contains(range.commonAncestorContainer)) return;
+            const start = range.startContainer.nodeType === Node.TEXT_NODE
+                ? range.startContainer.parentElement : range.startContainer;
+            const isRule = range.collapsed && range.startContainer.nodeType === Node.TEXT_NODE &&
+                range.startContainer.textContent.trim() === '---';
+            // Leave normal paragraph and list edits to the browser so selection, markup and undo stay intact.
+            if (!isRule && !this.findCheckboxContainer(start) &&
+                !(e.shiftKey && start.tagName === 'BLOCKQUOTE')) return;
+            e.preventDefault();
+            if (!range.collapsed) range.deleteContents();
             const textContent = range.startContainer.textContent || '';
             
             if (textContent.trim() === '---') {
@@ -377,12 +401,14 @@ class MarkdownEditor {
     }
 
     processMarkdown(text, cursorPos, range) {
+        if (range.startContainer.nodeType !== Node.TEXT_NODE ||
+            range.startContainer.parentElement.closest('code, pre')) return;
         this.isProcessing = true;
 
         const patterns = [
             { regex: /`([^`]+)`/, handler: (match) => this.createInlineCode(text, match, range.startContainer), minPos: (match) => text.indexOf(match[0]) + match[0].length },
-            { regex: /^-\s\[x\]\s(.*)/, handler: (match) => this.createCheckbox(match[1], range.startContainer, true), minPos: 6 },
-            { regex: /^-\s\[\s?\]\s(.*)/, handler: (match) => this.createCheckbox(match[1], range.startContainer, false), minPos: 5 },
+            { regex: /^-\s\[[xX]\]\s(.*)/, handler: (match) => this.createCheckbox(match[1], range.startContainer, true), minPos: 6 },
+            { regex: /^-\s\[\s?\]\s(.*)/, handler: (match) => this.createCheckbox(match[1], range.startContainer, false), minPos: (match) => match[0].length - match[1].length },
             { regex: /^(#{1,6})\s(.*)$/, handler: (match) => this.replaceWithElement(`h${match[1].length}`, match[2], range.startContainer), minPos: (match) => match[1].length + 1 },
             { regex: /^>\s(.+)$/, handler: (match) => this.createBlockquote(match[1], range.startContainer), minPos: 2 },
             { regex: /^---\s*$/, handler: (match) => this.createHorizontalRule(range.startContainer), minPos: 3 },
@@ -391,7 +417,7 @@ class MarkdownEditor {
             { regex: /\*\*(.*?)\*\*/, handler: (match) => this.replaceInlineMarkdown(text, match, 'strong', range.startContainer), minPos: (match) => text.indexOf(match[0]) + match[0].length },
             { regex: /(?<!\*)\*([^*]+)\*(?!\*)/, handler: (match) => this.replaceInlineMarkdown(text, match, 'em', range.startContainer), minPos: (match) => text.indexOf(match[0]) + match[0].length },
             { regex: /__(.+?)__/, handler: (match) => this.replaceInlineMarkdown(text, match, 'u', range.startContainer), minPos: (match) => text.indexOf(match[0]) + match[0].length },
-            { regex: /^(\d+)\.\s(.+)$/, handler: (match) => this.createOrderedListItem(match[2], range.startContainer), minPos: (match) => match[1].length + 2 },
+            { regex: /^(\d+)\.\s(.+)$/, handler: (match) => this.createOrderedListItem(match[2], range.startContainer, Number(match[1])), minPos: (match) => match[1].length + 2 },
             { regex: /^-\s(?!\[)(.+)$/, handler: (match) => this.createListItem(match[1], range.startContainer), minPos: 2 }
         ];
 
@@ -399,9 +425,8 @@ class MarkdownEditor {
             const match = text.match(pattern.regex);
             if (match) {
                 const minPos = typeof pattern.minPos === 'function' ? pattern.minPos(match) : pattern.minPos;
-                if (cursorPos > minPos) {
-                    pattern.handler(match);
-                    this.isProcessing = false;
+                if (cursorPos >= minPos) {
+                    try { pattern.handler(match); } finally { this.isProcessing = false; }
                     return;
                 }
             }
@@ -412,6 +437,7 @@ class MarkdownEditor {
 
     replaceWithElement(tagName, content, textNode) {
         const element = document.createElement(tagName);
+        element.dir = 'auto';
         element.textContent = content;
 
         const parent = textNode.parentNode;
@@ -494,7 +520,7 @@ class MarkdownEditor {
         this.setCursorAtEnd(li);
     }
 
-    createOrderedListItem(content, textNode) {
+    createOrderedListItem(content, textNode, start) {
         const li = document.createElement('li');
         li.setAttribute('dir', 'auto');
         li.textContent = content;
@@ -509,6 +535,7 @@ class MarkdownEditor {
         if (!ol) {
             ol = document.createElement('ol');
             ol.setAttribute('dir', 'auto');
+            if (start !== 1) ol.start = start;
             parent.parentNode.insertBefore(ol, parent);
         }
 
@@ -552,6 +579,7 @@ class MarkdownEditor {
     createImage(alt, src, fullText, textNode) {
         const img = document.createElement('img');
         img.src = this.sanitizeUrl(src, true);
+        img.referrerPolicy = 'no-referrer';
         img.alt = alt;
         img.setAttribute('data-draggable', '');
 
@@ -607,6 +635,7 @@ class MarkdownEditor {
         if (selection.rangeCount === 0) return;
 
         const range = selection.getRangeAt(0);
+        if (!range.collapsed) return;
 
         if (range.startContainer.nodeType === Node.TEXT_NODE) {
             const element = range.startContainer.parentElement;
@@ -649,11 +678,11 @@ class MarkdownEditor {
     }
 
     isStyledElement(element) {
-        return ['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'STRONG', 'EM', 'U', 'CODE', 'LI', 'BLOCKQUOTE', 'A', 'IMG', 'HR'].includes(element.tagName);
+        return ['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'STRONG', 'EM', 'U', 'CODE', 'LI', 'BLOCKQUOTE', 'A', 'IMG', 'HR'].includes(element?.tagName);
     }
 
     isBackspaceRevertibleElement(element) {
-        return ['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'STRONG', 'EM', 'U', 'CODE', 'BLOCKQUOTE', 'A', 'IMG', 'HR'].includes(element.tagName);
+        return ['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'STRONG', 'EM', 'U', 'CODE', 'BLOCKQUOTE', 'A', 'IMG', 'HR'].includes(element?.tagName);
     }
 
     convertToPlain(element) {
@@ -732,6 +761,9 @@ class MarkdownEditor {
         }
 
         element.setAttribute('contenteditable', 'true');
+        element.setAttribute('role', 'textbox');
+        element.setAttribute('aria-multiline', 'true');
+        element.setAttribute('aria-label', 'Writing editor');
         element.setAttribute('spellcheck', 'false');
         element.setAttribute('dir', 'auto');
 

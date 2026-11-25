@@ -1,6 +1,6 @@
 # Odak Markdown Example
 
-This document shows the Markdown syntax currently supported by Odak 3.0.
+This document shows the Markdown syntax currently supported by Odak 3.1.
 
 ## Text Formatting
 
@@ -11,7 +11,7 @@ Write **bold text**, *italic text*, __underlined text__, and `inline code`.
 Visit [Odak.app](https://odak.app) or [email the author](mailto:contact@odak.app).
 
 ### Image
-![Odak logo](https://odak.app/assets/images/odak.svg)
+![Odak logo](./assets/images/odak.svg?v=3.1)
 <!-- odak:image {"x":707,"y":279,"width":86,"height":86} -->
 
 ## Lists
